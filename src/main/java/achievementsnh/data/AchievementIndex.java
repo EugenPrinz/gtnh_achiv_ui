@@ -178,11 +178,19 @@ public final class AchievementIndex {
         return Config.hideSpoilers && status(a) == Status.LOCKED && distance(a) > 3;
     }
 
-    /** Text query match (name + description, formatting stripped). Masked achievements never match. */
-    public boolean matchesQuery(Achievement a, String query) {
-        String q = query == null ? ""
+    public static String normalizeQuery(String query) {
+        return query == null ? ""
             : query.trim()
                 .toLowerCase(Locale.ROOT);
+    }
+
+    /** Text query match (name + description, formatting stripped). Masked achievements never match. */
+    public boolean matchesQuery(Achievement a, String query) {
+        return matchesNormalized(a, normalizeQuery(query));
+    }
+
+    /** Same as {@link #matchesQuery} for a query already passed through {@link #normalizeQuery}. */
+    public boolean matchesNormalized(Achievement a, String q) {
         if (q.isEmpty()) return true;
         String text = searchText.get(a);
         return text != null && !isMasked(a) && text.contains(q);

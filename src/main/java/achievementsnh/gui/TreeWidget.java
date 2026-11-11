@@ -5,11 +5,16 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.RenderHelper;
+import net.minecraft.client.renderer.entity.RenderItem;
 import net.minecraft.client.resources.I18n;
+import net.minecraft.item.ItemStack;
 import net.minecraft.stats.Achievement;
 import net.minecraft.util.EnumChatFormatting;
 
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL12;
 
 import com.cleanroommc.modularui.api.UpOrDown;
 import com.cleanroommc.modularui.api.widget.Interactable;
@@ -20,6 +25,7 @@ import com.cleanroommc.modularui.theme.WidgetThemeEntry;
 import com.cleanroommc.modularui.widget.Widget;
 
 import achievementsnh.data.AchievementIndex;
+import achievementsnh.data.Filter;
 import achievementsnh.data.Status;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
@@ -65,7 +71,15 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
     // per-page cache
     private int cachedPage = -1;
     private final List<Achievement> nodes = new ArrayList<>();
-    private final Map<Achievement, Boolean> onPage = new IdentityHashMap<>();
+    private final Map<Achievement, Integer> slot = new IdentityHashMap<>();
+
+    // per-frame caches, indexed like `nodes`
+    private Status[] status = new Status[0];
+    private boolean[] hidden = new boolean[0];
+    private boolean[] match = new boolean[0];
+    private boolean[] onScreen = new boolean[0];
+
+    private static final RenderItem ITEM_RENDER = new RenderItem();
 
     public TreeWidget(AchievementIndex index, AchievementsUI ui) {
         this.index = index;
@@ -95,12 +109,17 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
         if (page == cachedPage) return;
         cachedPage = page;
         nodes.clear();
-        onPage.clear();
+        slot.clear();
         for (Achievement a : index.pages()
             .get(page).achievements) {
+            slot.put(a, nodes.size());
             nodes.add(a);
-            onPage.put(a, Boolean.TRUE);
         }
+        int n = nodes.size();
+        status = new Status[n];
+        hidden = new boolean[n];
+        match = new boolean[n];
+        onScreen = new boolean[n];
         needsFit = true;
     }
 
@@ -109,51 +128,136 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
         refreshNodes();
         int w = getArea().width, h = getArea().height;
         if (w <= 0 || h <= 0) return;
+        updateCaches(w, h);
         applyPendingView(w, h);
+        updateVisibility(w, h);
 
         mouseLocalX = context.getMouseX();
         mouseLocalY = context.getMouseY();
         boolean mouseInside = mouseLocalX >= 0 && mouseLocalY >= 0 && mouseLocalX < w && mouseLocalY < h;
         hovered = mouseInside && !dragged ? nodeAt(mouseLocalX, mouseLocalY) : null;
 
+        int n = nodes.size();
         Stencil.applyAtZero(getArea(), context);
         GL11.glPushMatrix();
         GL11.glTranslatef(panX, panY, 0);
         GL11.glScalef(zoom, zoom, 1);
 
-        // links first, under the nodes
-        for (Achievement a : nodes) {
-            Achievement p = a.parentAchievement;
-            if (p == null || onPage.get(p) == null || index.isHidden(a) || index.isHidden(p)) continue;
-            int color = lineColor(AchievementIndex.status(a));
+        // 1. links, under the nodes; vanilla routing: along the child's row to the parent's column, then up
+        for (int i = 0; i < n; i++) {
+            Achievement a = nodes.get(i);
+            Integer pi = a.parentAchievement == null ? null : slot.get(a.parentAchievement);
+            if (pi == null || hidden[i] || hidden[pi]) continue;
+            if (!onScreen[i] && !onScreen[pi] && !lineOnScreen(a, a.parentAchievement, w, h)) continue;
+            int color = lineColor(status[i]);
             int cx = a.displayColumn * CELL + HALF, cy = a.displayRow * CELL + HALF;
-            int px = p.displayColumn * CELL + HALF, py = p.displayRow * CELL + HALF;
-            // vanilla routing: along the child's row to the parent's column, then along that column to the parent
+            int px = a.parentAchievement.displayColumn * CELL + HALF, py = a.parentAchievement.displayRow * CELL + HALF;
             GuiDraw.drawRect(Math.min(cx, px) - 1, cy - 1, Math.abs(cx - px) + 2, 2, color);
             GuiDraw.drawRect(px - 1, Math.min(cy, py) - 1, 2, Math.abs(cy - py) + 2, color);
         }
 
-        Achievement selected = ui.selected();
-        for (Achievement a : nodes) {
-            if (index.isHidden(a)) continue;
-            Status status = AchievementIndex.status(a);
+        // 2. frames
+        for (int i = 0; i < n; i++) {
+            if (!onScreen[i]) continue;
+            Achievement a = nodes.get(i);
             int x = a.displayColumn * CELL, y = a.displayRow * CELL;
-            if (a == selected) GuiDraw.drawRect(x - 3, y - 3, NODE + 6, NODE + 6, SELECTED_RING);
             if (a.getSpecial()) GuiDraw.drawRect(x - 1, y - 1, NODE + 2, NODE + 2, SPECIAL_RING);
-            GuiDraw.drawRect(x, y, NODE, NODE, status == Status.LOCKED ? LOCKED_BORDER : status.color);
+            GuiDraw.drawRect(x, y, NODE, NODE, status[i] == Status.LOCKED ? LOCKED_BORDER : status[i].color);
             GuiDraw.drawRect(x + 2, y + 2, NODE - 4, NODE - 4, NODE_FILL);
-            if (!index.isMasked(a)) GuiDraw.drawItem(a.theItemStack, x + 3, y + 3, 16, 16, 0);
-            // overlays above the item: items render at zLevel ~100 with depth test on
-            GL11.glPushMatrix();
-            GL11.glTranslatef(0, 0, 250);
-            if (status == Status.LOCKED) GuiDraw.drawRect(x + 2, y + 2, NODE - 4, NODE - 4, LOCKED_DIM);
-            if (!ui.matches(a)) GuiDraw.drawRect(x, y, NODE, NODE, NO_MATCH_DIM);
-            if (a == hovered) GuiDraw.drawRect(x, y, NODE, NODE, 0x30FFFFFF);
-            GL11.glPopMatrix();
         }
+
+        // 3. items, one GL setup for the whole batch; skipped when too small to read
+        if (zoom * 16f >= 6f) drawItems(n);
+
+        // 4. overlays above items (items render at zLevel ~100 with depth test on)
+        GL11.glPushMatrix();
+        GL11.glTranslatef(0, 0, 300);
+        Achievement selected = ui.selected();
+        for (int i = 0; i < n; i++) {
+            if (!onScreen[i]) continue;
+            Achievement a = nodes.get(i);
+            int x = a.displayColumn * CELL, y = a.displayRow * CELL;
+            if (status[i] == Status.LOCKED) GuiDraw.drawRect(x + 2, y + 2, NODE - 4, NODE - 4, LOCKED_DIM);
+            if (!match[i]) GuiDraw.drawRect(x, y, NODE, NODE, NO_MATCH_DIM);
+            if (a == hovered) GuiDraw.drawRect(x, y, NODE, NODE, 0x30FFFFFF);
+        }
+        // selection ring last, inside the 2px gap between cells so it never covers neighbours
+        Integer si = selected == null ? null : slot.get(selected);
+        if (si != null && onScreen[si]) {
+            int x = selected.displayColumn * CELL - 1, y = selected.displayRow * CELL - 1, s = NODE + 2;
+            GuiDraw.drawRect(x, y, s, 2, SELECTED_RING);
+            GuiDraw.drawRect(x, y + s - 2, s, 2, SELECTED_RING);
+            GuiDraw.drawRect(x, y + 2, 2, s - 4, SELECTED_RING);
+            GuiDraw.drawRect(x + s - 2, y + 2, 2, s - 4, SELECTED_RING);
+        }
+        GL11.glPopMatrix();
 
         GL11.glPopMatrix();
         Stencil.remove();
+    }
+
+    /** Status, spoiler state and search/filter match: computed once per frame instead of per pass. */
+    private void updateCaches(int w, int h) {
+        Filter f = ui.filter();
+        String q = AchievementIndex.normalizeQuery(ui.query());
+        for (int i = 0; i < nodes.size(); i++) {
+            Achievement a = nodes.get(i);
+            Status st = AchievementIndex.status(a);
+            status[i] = st;
+            hidden[i] = index.isHidden(a);
+            match[i] = f.accepts(st) && index.matchesNormalized(a, q);
+        }
+    }
+
+    private void updateVisibility(int w, int h) {
+        float cell = NODE * zoom;
+        for (int i = 0; i < nodes.size(); i++) {
+            if (hidden[i]) {
+                onScreen[i] = false;
+                continue;
+            }
+            Achievement a = nodes.get(i);
+            float sx = a.displayColumn * CELL * zoom + panX, sy = a.displayRow * CELL * zoom + panY;
+            onScreen[i] = sx + cell >= 0 && sy + cell >= 0 && sx <= w && sy <= h;
+        }
+    }
+
+    private boolean lineOnScreen(Achievement a, Achievement p, int w, int h) {
+        float x0 = (Math.min(a.displayColumn, p.displayColumn) * CELL + HALF) * zoom + panX;
+        float x1 = (Math.max(a.displayColumn, p.displayColumn) * CELL + HALF) * zoom + panX;
+        float y0 = (Math.min(a.displayRow, p.displayRow) * CELL + HALF) * zoom + panY;
+        float y1 = (Math.max(a.displayRow, p.displayRow) * CELL + HALF) * zoom + panY;
+        return x1 >= 0 && y1 >= 0 && x0 <= w && y0 <= h;
+    }
+
+    private void drawItems(int n) {
+        Minecraft mc = Minecraft.getMinecraft();
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        GL11.glEnable(GL12.GL_RESCALE_NORMAL);
+        RenderHelper.enableGUIStandardItemLighting();
+        GL11.glEnable(GL11.GL_DEPTH_TEST);
+        ITEM_RENDER.zLevel = 100f;
+        for (int i = 0; i < n; i++) {
+            if (!onScreen[i]) continue;
+            Achievement a = nodes.get(i);
+            ItemStack stack = a.theItemStack;
+            if (stack == null || stack.getItem() == null || index.isMasked(a)) continue;
+            try {
+                ITEM_RENDER.renderItemAndEffectIntoGUI(
+                    mc.fontRenderer,
+                    mc.getTextureManager(),
+                    stack,
+                    a.displayColumn * CELL + 3,
+                    a.displayRow * CELL + 3);
+            } catch (Throwable ignored) {
+                // a broken item renderer must not take the whole screen down
+            }
+        }
+        ITEM_RENDER.zLevel = 0f;
+        RenderHelper.disableStandardItemLighting();
+        GL11.glDisable(GL11.GL_DEPTH_TEST);
+        GL11.glDisable(GL12.GL_RESCALE_NORMAL);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     private static int lineColor(Status s) {
@@ -168,7 +272,7 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
         if (pendingCenter != null) {
             Achievement a = pendingCenter;
             pendingCenter = null;
-            if (onPage.get(a) != null) {
+            if (slot.get(a) != null) {
                 if (zoom < 0.75f) zoom = 1f;
                 panX = w / 2f - (a.displayColumn * CELL + HALF) * zoom;
                 panY = h / 2f - (a.displayRow * CELL + HALF) * zoom;
@@ -178,8 +282,9 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
 
     private void fit(int w, int h) {
         int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE;
-        for (Achievement a : nodes) {
-            if (index.isHidden(a)) continue;
+        for (int i = 0; i < nodes.size(); i++) {
+            if (hidden[i]) continue;
+            Achievement a = nodes.get(i);
             minX = Math.min(minX, a.displayColumn * CELL);
             minY = Math.min(minY, a.displayRow * CELL);
             maxX = Math.max(maxX, a.displayColumn * CELL + NODE);
@@ -200,8 +305,8 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
         float wx = (localX - panX) / zoom, wy = (localY - panY) / zoom;
         // iterate backwards: later nodes are drawn on top
         for (int i = nodes.size() - 1; i >= 0; i--) {
+            if (!onScreen[i]) continue;
             Achievement a = nodes.get(i);
-            if (index.isHidden(a)) continue;
             int x = a.displayColumn * CELL, y = a.displayRow * CELL;
             if (wx >= x && wx < x + NODE && wy >= y && wy < y + NODE) return a;
         }

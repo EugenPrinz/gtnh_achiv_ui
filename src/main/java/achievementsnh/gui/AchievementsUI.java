@@ -2,6 +2,7 @@ package achievementsnh.gui;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Supplier;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.I18n;
@@ -16,6 +17,7 @@ import com.cleanroommc.modularui.drawable.ItemDrawable;
 import com.cleanroommc.modularui.drawable.Rectangle;
 import com.cleanroommc.modularui.screen.ModularPanel;
 import com.cleanroommc.modularui.utils.Alignment;
+import com.cleanroommc.modularui.widget.Widget;
 import com.cleanroommc.modularui.value.StringValue;
 import com.cleanroommc.modularui.widgets.ButtonWidget;
 import com.cleanroommc.modularui.widgets.ScrollingTextWidget;
@@ -134,11 +136,7 @@ public class AchievementsUI {
             .childPadding(4)
             .crossAxisAlignment(Alignment.CrossAxis.CENTER);
         row.child(
-            IKey.dynamic(this::titleText)
-                .asWidget()
-                .color(TEXT)
-                .textAlign(Alignment.CenterLeft)
-                .expanded()
+            label(this::titleText, TEXT, 1f, Alignment.CenterLeft).expanded()
                 .heightRel(1f));
         row.child(
             new TextFieldWidget().value(new StringValue.Dynamic(() -> query, this::setQuery))
@@ -177,11 +175,7 @@ public class AchievementsUI {
             .child(viewButton(false, "achievementsnh.view.list"))
             .child(viewButton(true, "achievementsnh.view.tree"))
             .child(
-                IKey.dynamic(this::totalText)
-                    .asWidget()
-                    .color(TEXT)
-                    .textAlign(Alignment.CenterLeft)
-                    .expanded()
+                label(this::totalText, TEXT, 1f, Alignment.CenterLeft).expanded()
                     .heightRel(1f))
             .child(
                 new ButtonWidget<>().width(oldW)
@@ -241,17 +235,13 @@ public class AchievementsUI {
                         Flow.column()
                             .expanded()
                             .heightRel(1f)
-                            .mainAxisAlignment(Alignment.MainAxis.CENTER)
+                            .paddingTop(1)
                             .child(
                                 new ScrollingTextWidget(IKey.str(p.name)).color(TEXT)
                                     .widthRel(1f)
                                     .height(9))
                             .child(
-                                IKey.dynamic(() -> progressText(p.achievements))
-                                    .asWidget()
-                                    .color(TEXT_DIM)
-                                    .scale(0.75f)
-                                    .textAlign(Alignment.CenterLeft)
+                                label(() -> progressText(p.achievements), TEXT_DIM, 0.75f, Alignment.CenterLeft)
                                     .widthRel(1f)
                                     .height(7))))
             .onMousePressed(b -> {
@@ -297,14 +287,14 @@ public class AchievementsUI {
                 Flow.column()
                     .expanded()
                     .heightRel(1f)
-                    .mainAxisAlignment(Alignment.MainAxis.CENTER)
+                    .paddingTop(1)
                     .child(
-                        new ScrollingTextWidget(IKey.dynamic(() -> index.name(a)))
+                        new ScrollingTextWidget(IKey.str(index.name(a)))
                             .color(() -> AchievementIndex.status(a).color)
                             .widthRel(1f)
                             .height(9))
                     .child(
-                        new ScrollingTextWidget(IKey.dynamic(() -> index.description(a))).color(TEXT_DIM)
+                        new ScrollingTextWidget(IKey.str(index.description(a))).color(TEXT_DIM)
                             .scale(0.75f)
                             .widthRel(1f)
                             .height(7)));
@@ -395,7 +385,7 @@ public class AchievementsUI {
                         new ItemDrawable(a.theItemStack).asWidget()
                             .size(14))
                     .child(
-                        new ScrollingTextWidget(IKey.dynamic(() -> index.name(a)))
+                        new ScrollingTextWidget(IKey.str(index.name(a)))
                             .color(() -> AchievementIndex.status(a).color)
                             .expanded()
                             .height(9)))
@@ -404,6 +394,18 @@ public class AchievementsUI {
                 navigateTo(a);
                 return true;
             });
+    }
+
+    /**
+     * Text that changes at runtime, drawn as an overlay instead of a TextWidget: a TextWidget re-runs layout of the
+     * whole widget tree every time its text changes.
+     */
+    private static Widget<?> label(Supplier<String> text, int color, float scale, Alignment align) {
+        return new Widget<>().overlay(
+            IKey.dynamic(text)
+                .alignment(align)
+                .color(color)
+                .scale(scale));
     }
 
     private static TextWidget<?> text(IKey key, int color, float scale) {
@@ -512,6 +514,14 @@ public class AchievementsUI {
 
     Achievement selected() {
         return selected;
+    }
+
+    Filter filter() {
+        return filter;
+    }
+
+    String query() {
+        return query;
     }
 
     /** Current search text and status filter; the tree dims nodes that do not match. */
