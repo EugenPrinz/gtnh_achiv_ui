@@ -130,8 +130,8 @@ public class AchievementsUI {
     private IWidget header() {
         Flow row = Flow.row()
             .widthRel(1f)
-            .height(16)
-            .childPadding(3)
+            .height(20)
+            .childPadding(4)
             .crossAxisAlignment(Alignment.CrossAxis.CENTER);
         row.child(
             IKey.dynamic(this::titleText)
@@ -146,13 +146,13 @@ public class AchievementsUI {
                 .acceptsExpressions(false)
                 .setMaxLength(64)
                 .hintText(I18n.format("achievementsnh.gui.search"))
-                .width(130)
-                .height(14));
+                .width(180)
+                .height(18));
         for (Filter f : Filter.values()) {
-            int w = Minecraft.getMinecraft().fontRenderer.getStringWidth(I18n.format(f.langKey)) + 10;
+            int w = Minecraft.getMinecraft().fontRenderer.getStringWidth(I18n.format(f.langKey)) + 16;
             row.child(
                 new ButtonWidget<>().width(w)
-                    .height(14)
+                    .height(18)
                     .overlay(
                         IKey.dynamic(
                             () -> (filter == f ? EnumChatFormatting.YELLOW.toString() : "") + I18n.format(f.langKey)))
