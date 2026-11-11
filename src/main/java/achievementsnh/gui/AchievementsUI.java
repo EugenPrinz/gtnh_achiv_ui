@@ -312,6 +312,7 @@ public class AchievementsUI {
     private void rebuildPageList() {
         List<PageInfo> pages = new ArrayList<>();
         for (PageInfo p : index.pages()) {
+            if (p.virtual) continue; // pinned is added first below
             if (p.achievements.isEmpty()) continue;
             if (hideCompleted && p.index != page && index.countUnlocked(p.achievements) == p.achievements.size()) {
                 continue;
@@ -322,6 +323,8 @@ public class AchievementsUI {
             // closest to completion first
             pages.sort((x, y) -> Double.compare(progress(y), progress(x)));
         }
+        PageInfo pinned = index.pinnedPage();
+        if (!pinned.achievements.isEmpty() || page == pinned.index) pages.add(0, pinned);
         shownPages = pages;
         pageList.removeAll();
         for (PageInfo p : pages) pageList.child(pageButton(p));
@@ -352,7 +355,8 @@ public class AchievementsUI {
                             .size(16))
                     .child(
                         new TwoLineText(() -> p.name, () -> progressText(p.achievements), () -> TEXT, TEXT_DIM)
-                            .expanded()
+                            // row padding 3+3, icon 16, gap 4
+                            .widthRelOffset(1f, -26)
                             .heightRel(1f)))
             .onMousePressed(b -> {
                 if (b != 0) return false;
@@ -396,10 +400,12 @@ public class AchievementsUI {
                     .size(16))
             .child(
                 new TwoLineText(
-                    () -> index.name(a),
+                    () -> (index.isPinned(a) ? "\u2605 " : "") + index.name(a),
                     () -> index.description(a),
                     () -> AchievementIndex.status(a).color,
-                    TEXT_DIM).expanded()
+                    TEXT_DIM)
+                        // row padding 3, stripe 2, icon 16, two gaps of 5; plus gap 5 + page label 70
+                        .widthRelOffset(1f, showPage ? -106 : -31)
                         .heightRel(1f));
         if (showPage) {
             PageInfo p = index.pageOf(a);
@@ -422,7 +428,8 @@ public class AchievementsUI {
                 if (b != 0) return false;
                 select(a);
                 return true;
-            });
+            })
+            .onKeyPressed((c, k) -> NeiCompat.handleKey(k, a.theItemStack));
     }
 
     // ---- details --------------------------------------------------------------------------------------------------
@@ -438,15 +445,38 @@ public class AchievementsUI {
         PageInfo p = index.pageOf(a);
 
         details.child(
-            new ItemDrawable(a.theItemStack).asWidget()
-                .size(24)
-                .marginBottom(3));
+            new ButtonWidget<>().size(26)
+                .marginBottom(3)
+                .background(IDrawable.EMPTY)
+                .hoverBackground(ROW_HOVER)
+                .overlay(
+                    new ItemDrawable(a.theItemStack).asIcon()
+                        .size(24))
+                .onKeyPressed((c, k) -> NeiCompat.handleKey(k, a.theItemStack)));
         details.child(text(IKey.str(index.name(a)), status.color, 1f));
 
         String statusLine = I18n.format(status.langKey);
         if (a.getSpecial()) statusLine += " · " + I18n.format("achievementsnh.gui.special");
         details.child(text(IKey.str(statusLine), status.color, 0.75f));
         details.child(text(IKey.str(I18n.format("achievementsnh.gui.page", p.name)), TEXT_DIM, 0.75f));
+        details.child(
+            new ButtonWidget<>().widthRel(1f)
+                .height(16)
+                .marginTop(2)
+                .marginBottom(2)
+                .overlay(
+                    IKey.dynamic(
+                        () -> index.isPinned(a) ? "\u2605 " + I18n.format("achievementsnh.pin.remove")
+                            : "\u2606 " + I18n.format("achievementsnh.pin.add")))
+                .addTooltipLine(I18n.format("achievementsnh.pin.tooltip"))
+                .onMousePressed(b -> {
+                    if (b != 0) return false;
+                    togglePin(a);
+                    return true;
+                }));
+        if (NeiCompat.isLoaded()) {
+            details.child(text(IKey.str(I18n.format("achievementsnh.nei.hint")), TEXT_DIM, 0.75f));
+        }
 
         String desc = index.description(a);
         if (!desc.isEmpty()) details.child(text(IKey.str(desc), TEXT, 1f).marginTop(3));
@@ -496,7 +526,8 @@ public class AchievementsUI {
                 if (b != 0) return false;
                 navigateTo(a);
                 return true;
-            });
+            })
+            .onKeyPressed((c, k) -> NeiCompat.handleKey(k, a.theItemStack));
     }
 
     /**
@@ -567,11 +598,24 @@ public class AchievementsUI {
                 if (selected != null) navigateTo(selected);
             }
             case Keyboard.KEY_N -> nextAvailable();
+            case Keyboard.KEY_P -> {
+                if (selected != null) togglePin(selected);
+            }
             default -> {
                 return false;
             }
         }
         return true;
+    }
+
+    /** Pin/unpin; refreshes the pinned page (list, tree, sidebar) and the details button. */
+    private void togglePin(Achievement a) {
+        index.togglePin(a);
+        if (page == index.pinnedPage().index) {
+            refreshList();
+            tree.invalidate();
+        }
+        pendingPageRebuild = true;
     }
 
     private void movePage(int delta) {

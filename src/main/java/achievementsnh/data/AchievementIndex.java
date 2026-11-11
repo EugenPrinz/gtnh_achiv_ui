@@ -39,17 +39,22 @@ public final class AchievementIndex {
         public final String name;
         public final ItemStack icon;
         public final List<Achievement> achievements;
+        /** Not a real AchievementPage (the pinned list): contents come from other pages. */
+        public final boolean virtual;
 
-        PageInfo(int index, String name, ItemStack icon, List<Achievement> achievements) {
+        PageInfo(int index, String name, ItemStack icon, List<Achievement> achievements, boolean virtual) {
             this.index = index;
             this.name = name;
             this.icon = icon;
             this.achievements = achievements;
+            this.virtual = virtual;
         }
     }
 
     private final List<PageInfo> pages = new ArrayList<>();
     private final List<Achievement> all = new ArrayList<>();
+    private final List<Achievement> pinned = new ArrayList<>();
+    private PageInfo pinnedPage;
     private final Map<Achievement, PageInfo> pageOf = new IdentityHashMap<>();
     private final Map<Achievement, List<Achievement>> children = new IdentityHashMap<>();
     private final Map<Achievement, String> names = new IdentityHashMap<>();
@@ -86,10 +91,50 @@ public final class AchievementIndex {
                     .add(a);
             }
         }
+
+        // pinned: virtual page, always last in `pages` so real page indices stay stable
+        Map<String, Achievement> byId = new java.util.HashMap<>();
+        for (Achievement a : all) byId.put(a.statId, a);
+        for (String id : Pins.load()) {
+            Achievement a = byId.get(id);
+            if (a != null && !pinned.contains(a)) pinned.add(a);
+        }
+        pinnedPage = new PageInfo(
+            pages.size(),
+            "\u2605 " + I18n.format("achievementsnh.pages.pinned"),
+            new ItemStack(Items.nether_star),
+            Collections.unmodifiableList(pinned),
+            true);
+        pages.add(pinnedPage);
+    }
+
+    // ---- pins -----------------------------------------------------------------------------------------------------
+
+    public PageInfo pinnedPage() {
+        return pinnedPage;
+    }
+
+    public boolean isPinned(Achievement a) {
+        return pinned.contains(a);
+    }
+
+    /** Toggles and saves; returns the new state. */
+    public boolean togglePin(Achievement a) {
+        boolean now;
+        if (pinned.remove(a)) {
+            now = false;
+        } else {
+            pinned.add(a);
+            now = true;
+        }
+        List<String> ids = new ArrayList<>();
+        for (Achievement p : pinned) ids.add(p.statId);
+        Pins.save(ids);
+        return now;
     }
 
     private void addPage(String name, ItemStack icon, List<Achievement> list) {
-        PageInfo info = new PageInfo(pages.size(), name, icon, Collections.unmodifiableList(list));
+        PageInfo info = new PageInfo(pages.size(), name, icon, Collections.unmodifiableList(list), false);
         pages.add(info);
         for (Achievement a : list) {
             if (pageOf.containsKey(a)) continue; // achievement registered on several pages: first one wins

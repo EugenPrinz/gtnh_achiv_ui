@@ -9,7 +9,7 @@ A client-side replacement of the achievements screen for GT New Horizons 2.9 (Mi
 - Details panel: description, status, page, "requires" and "unlocks" links that jump to the target.
 - "Old screen" opens Better Achievements (or vanilla) if you need the tree view.
 
-Config: `config/achievementsnh.cfg` (`hideSpoilers`, window and column sizes, `maxRows`).
+Config: mod list → Achievements NH → Config, or `config/achievementsnh.cfg` (`hideSpoilers`, window and column sizes, `maxRows`, `showFps`, `backgroundOpacity`). Pins: `config/achievementsnh-pinned.txt`.
 
 Build: `./gradlew build`, jar in `build/libs/`. Requires ModularUI2 (shipped with GTNH).
 
@@ -23,3 +23,5 @@ Build: `./gradlew build`, jar in `build/libs/`. Requires ModularUI2 (shipped wit
 | Up / Down | Previous / next page |
 | Enter | Show the selected achievement |
 | N | Next achievement you can unlock now |
+| P | Pin / unpin the selected achievement |
+| R / U (hover) | NEI recipe / usage of the achievement's item |

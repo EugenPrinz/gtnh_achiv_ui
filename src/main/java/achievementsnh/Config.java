@@ -6,7 +6,10 @@ import net.minecraftforge.common.config.Configuration;
 
 public final class Config {
 
-    private static final String CAT = Configuration.CATEGORY_GENERAL;
+    public static final String CAT = Configuration.CATEGORY_GENERAL;
+
+    /** Kept for the in-game config screen (mod list → Config). */
+    public static Configuration config;
 
     /** Replace the vanilla / Better Achievements screen. */
     public static boolean enabled = true;
@@ -19,11 +22,19 @@ public final class Config {
     /** Upper bound of rows rendered in the list (search across all pages can match thousands). */
     public static int maxRows = 600;
     public static boolean showFps = true;
+    /** Opacity of the dark backdrop behind the window, 0..100. */
+    public static int backgroundOpacity = 85;
 
     private Config() {}
 
     public static void load(File file) {
-        Configuration c = new Configuration(file);
+        config = new Configuration(file);
+        sync();
+    }
+
+    /** Reads all values; called on load and after the config screen saves. */
+    public static void sync() {
+        Configuration c = config;
         enabled = c
             .getBoolean("enabled", CAT, enabled, "Replace the achievements screen with the Achievements NH one.");
         hideSpoilers = c.getBoolean(
@@ -39,6 +50,13 @@ public final class Config {
         detailsWidth = c.getInt("detailsWidth", CAT, detailsWidth, 80, 400, "Details panel width, GUI pixels.");
         maxRows = c.getInt("maxRows", CAT, maxRows, 50, 5000, "Maximum rows shown in the achievement list.");
         showFps = c.getBoolean("showFps", CAT, showFps, "Show the screen's frame rate in the footer.");
+        backgroundOpacity = c.getInt(
+            "backgroundOpacity",
+            CAT,
+            backgroundOpacity,
+            0,
+            100,
+            "Opacity of the dark backdrop behind the window, %. 0 = only the usual vanilla dimming.");
         if (c.hasChanged()) c.save();
     }
 }

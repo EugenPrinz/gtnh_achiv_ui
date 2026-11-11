@@ -13,7 +13,8 @@ import cpw.mods.fml.common.event.FMLPreInitializationEvent;
     version = Tags.VERSION,
     acceptedMinecraftVersions = "[1.7.10]",
     acceptableRemoteVersions = "*",
-    dependencies = "required-after:modularui2;after:BetterAchievements")
+    dependencies = "required-after:modularui2;after:BetterAchievements;after:NotEnoughItems",
+    guiFactory = "achievementsnh.gui.ConfigGuiFactory")
 public class AchievementsNH {
 
     public static final String MODID = "achievementsnh";

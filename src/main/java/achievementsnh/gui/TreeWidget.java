@@ -21,19 +21,24 @@ import com.cleanroommc.modularui.api.UpOrDown;
 import com.cleanroommc.modularui.api.widget.Interactable;
 import com.cleanroommc.modularui.drawable.GuiDraw;
 import com.cleanroommc.modularui.drawable.Stencil;
+import com.cleanroommc.modularui.screen.RichTooltip;
 import com.cleanroommc.modularui.screen.viewport.ModularGuiContext;
 import com.cleanroommc.modularui.theme.WidgetThemeEntry;
 import com.cleanroommc.modularui.widget.Widget;
 
 import achievementsnh.data.AchievementIndex;
+import achievementsnh.data.AchievementIndex.PageInfo;
 import achievementsnh.data.Filter;
 import achievementsnh.data.Status;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 
 /**
- * Vanilla-style achievement tree for one page: nodes at {@code displayColumn/displayRow}, L-shaped links to the parent
- * (same routing as vanilla GuiAchievements), wheel zoom around the cursor, drag to pan, click to select.
+ * Achievement tree for one page: nodes, L-shaped links to the parent (vanilla routing), wheel zoom around the cursor,
+ * drag to pan, click to select, R/U on a node for NEI.
+ * <p>
+ * Node positions come from {@link #layout}: vanilla {@code displayColumn/displayRow} for real pages, a compact grid
+ * for virtual pages (pinned) whose achievements come from different pages and would overlap.
  * <p>
  * Transform: {@code local = world * zoom + pan}. World units are vanilla pixels (one cell = 24).
  */
@@ -55,6 +60,8 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
     private static final int LOCKED_DIM = 0x88C6C6C6;
     private static final int NO_MATCH_DIM = 0xC0B4B4B4;
 
+    private static final RenderItem ITEM_RENDER = new RenderItem();
+
     private final AchievementIndex index;
     private final AchievementsUI ui;
 
@@ -72,18 +79,20 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
     private int mouseLocalX = -1, mouseLocalY = -1;
     private Achievement hovered;
 
-    // per-page cache
+    // per-page layout
     private int cachedPage = -1;
+    private int fittedPage = -1;
+    private boolean drawLinks;
     private final List<Achievement> nodes = new ArrayList<>();
     private final Map<Achievement, Integer> slot = new IdentityHashMap<>();
+    private int[] wx = new int[0], wy = new int[0];
+    private int[] parent = new int[0];
 
     // per-frame caches, indexed like `nodes`
     private Status[] status = new Status[0];
     private boolean[] hidden = new boolean[0];
     private boolean[] match = new boolean[0];
     private boolean[] onScreen = new boolean[0];
-
-    private static final RenderItem ITEM_RENDER = new RenderItem();
 
     public TreeWidget(AchievementIndex index, AchievementsUI ui) {
         this.index = index;
@@ -98,6 +107,7 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
     /** Fit the whole page into view on next draw. */
     public void requestFit() {
         needsFit = true;
+        fittedPage = ui.currentPage();
         pendingCenter = null;
     }
 
@@ -106,33 +116,71 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
         pendingCenter = a;
     }
 
-    // ---- drawing --------------------------------------------------------------------------------------------------
+    /** Page contents changed (pinned page edited): rebuild layout on next draw. */
+    public void invalidate() {
+        cachedPage = -1;
+    }
+
+    // ---- layout ---------------------------------------------------------------------------------------------------
 
     private void refreshNodes() {
         int page = ui.currentPage();
         if (page == cachedPage) return;
         cachedPage = page;
+        PageInfo info = index.pages()
+            .get(page);
         nodes.clear();
         slot.clear();
-        for (Achievement a : index.pages()
-            .get(page).achievements) {
+        for (Achievement a : info.achievements) {
             slot.put(a, nodes.size());
             nodes.add(a);
         }
         int n = nodes.size();
+        wx = new int[n];
+        wy = new int[n];
+        parent = new int[n];
         status = new Status[n];
         hidden = new boolean[n];
         match = new boolean[n];
         onScreen = new boolean[n];
-        needsFit = true;
+        layout(info);
+        // invalidate() of the same page (pin added/removed) keeps the view
+        if (page != fittedPage) {
+            fittedPage = page;
+            needsFit = true;
+        }
     }
+
+    /** World position of every node; -1 in {@link #parent} means no link is drawn. */
+    private void layout(PageInfo info) {
+        int n = nodes.size();
+        drawLinks = !info.virtual;
+        if (info.virtual) {
+            int cols = Math.max(1, (int) Math.ceil(Math.sqrt(n * 1.6)));
+            for (int i = 0; i < n; i++) {
+                wx[i] = (i % cols) * CELL;
+                wy[i] = (i / cols) * CELL;
+                parent[i] = -1;
+            }
+            return;
+        }
+        for (int i = 0; i < n; i++) {
+            Achievement a = nodes.get(i);
+            wx[i] = a.displayColumn * CELL;
+            wy[i] = a.displayRow * CELL;
+            Integer p = a.parentAchievement == null ? null : slot.get(a.parentAchievement);
+            parent[i] = p == null ? -1 : p;
+        }
+    }
+
+    // ---- drawing --------------------------------------------------------------------------------------------------
 
     @Override
     public void draw(ModularGuiContext context, WidgetThemeEntry<?> widgetTheme) {
         refreshNodes();
         int w = getArea().width, h = getArea().height;
         if (w <= 0 || h <= 0) return;
-        updateCaches(w, h);
+        updateCaches();
         applyPendingView(w, h);
         updateDragAndZoom(context);
         updateVisibility(w, h);
@@ -148,24 +196,25 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
         GL11.glTranslatef(panX, panY, 0);
         GL11.glScalef(zoom, zoom, 1);
 
-        // 1. links, under the nodes; vanilla routing: along the child's row to the parent's column, then up
-        for (int i = 0; i < n; i++) {
-            Achievement a = nodes.get(i);
-            Integer pi = a.parentAchievement == null ? null : slot.get(a.parentAchievement);
-            if (pi == null || hidden[i] || hidden[pi]) continue;
-            if (!onScreen[i] && !onScreen[pi] && !lineOnScreen(a, a.parentAchievement, w, h)) continue;
-            int color = lineColor(status[i]);
-            int cx = a.displayColumn * CELL + HALF, cy = a.displayRow * CELL + HALF;
-            int px = a.parentAchievement.displayColumn * CELL + HALF, py = a.parentAchievement.displayRow * CELL + HALF;
-            GuiDraw.drawRect(Math.min(cx, px) - 1, cy - 1, Math.abs(cx - px) + 2, 2, color);
-            GuiDraw.drawRect(px - 1, Math.min(cy, py) - 1, 2, Math.abs(cy - py) + 2, color);
+        // 1. links under the nodes; vanilla routing: along the child's row to the parent's column, then up
+        if (drawLinks) {
+            for (int i = 0; i < n; i++) {
+                int pi = parent[i];
+                if (pi < 0 || hidden[i] || hidden[pi]) continue;
+                if (!onScreen[i] && !onScreen[pi] && !lineOnScreen(i, pi, w, h)) continue;
+                int color = lineColor(status[i]);
+                int cx = wx[i] + HALF, cy = wy[i] + HALF;
+                int px = wx[pi] + HALF, py = wy[pi] + HALF;
+                GuiDraw.drawRect(Math.min(cx, px) - 1, cy - 1, Math.abs(cx - px) + 2, 2, color);
+                GuiDraw.drawRect(px - 1, Math.min(cy, py) - 1, 2, Math.abs(cy - py) + 2, color);
+            }
         }
 
         // 2. frames
         for (int i = 0; i < n; i++) {
             if (!onScreen[i]) continue;
             Achievement a = nodes.get(i);
-            int x = a.displayColumn * CELL, y = a.displayRow * CELL;
+            int x = wx[i], y = wy[i];
             if (a.getSpecial()) GuiDraw.drawRect(x - 1, y - 1, NODE + 2, NODE + 2, SPECIAL_RING);
             GuiDraw.drawRect(x, y, NODE, NODE, status[i] == Status.LOCKED ? LOCKED_BORDER : status[i].color);
             GuiDraw.drawRect(x + 2, y + 2, NODE - 4, NODE - 4, NODE_FILL);
@@ -177,19 +226,18 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
         // 4. overlays above items (items render at zLevel ~100 with depth test on)
         GL11.glPushMatrix();
         GL11.glTranslatef(0, 0, 300);
-        Achievement selected = ui.selected();
         for (int i = 0; i < n; i++) {
             if (!onScreen[i]) continue;
-            Achievement a = nodes.get(i);
-            int x = a.displayColumn * CELL, y = a.displayRow * CELL;
+            int x = wx[i], y = wy[i];
             if (status[i] == Status.LOCKED) GuiDraw.drawRect(x + 2, y + 2, NODE - 4, NODE - 4, LOCKED_DIM);
             if (!match[i]) GuiDraw.drawRect(x, y, NODE, NODE, NO_MATCH_DIM);
-            if (a == hovered) GuiDraw.drawRect(x, y, NODE, NODE, 0x30FFFFFF);
+            if (nodes.get(i) == hovered) GuiDraw.drawRect(x, y, NODE, NODE, 0x30FFFFFF);
         }
         // selection ring last, inside the 2px gap between cells so it never covers neighbours
+        Achievement selected = ui.selected();
         Integer si = selected == null ? null : slot.get(selected);
         if (si != null && onScreen[si]) {
-            int x = selected.displayColumn * CELL - 1, y = selected.displayRow * CELL - 1, s = NODE + 2;
+            int x = wx[si] - 1, y = wy[si] - 1, s = NODE + 2;
             GuiDraw.drawRect(x, y, s, 2, SELECTED_RING);
             GuiDraw.drawRect(x, y + s - 2, s, 2, SELECTED_RING);
             GuiDraw.drawRect(x, y + 2, 2, s - 4, SELECTED_RING);
@@ -199,6 +247,69 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
 
         GL11.glPopMatrix();
         Stencil.remove();
+    }
+
+    private static int lineColor(Status s) {
+        return s == Status.LOCKED ? LOCKED_LINE : s.color;
+    }
+
+    /** Status, spoiler state and search/filter match: computed once per frame instead of per pass. */
+    private void updateCaches() {
+        Filter f = ui.filter();
+        String q = AchievementIndex.normalizeQuery(ui.query());
+        for (int i = 0; i < nodes.size(); i++) {
+            Achievement a = nodes.get(i);
+            Status st = AchievementIndex.status(a);
+            status[i] = st;
+            hidden[i] = index.isHidden(a);
+            match[i] = f.accepts(st) && index.matchesNormalized(a, q);
+        }
+    }
+
+    private void updateVisibility(int w, int h) {
+        float cell = NODE * zoom;
+        for (int i = 0; i < nodes.size(); i++) {
+            if (hidden[i]) {
+                onScreen[i] = false;
+                continue;
+            }
+            float sx = wx[i] * zoom + panX, sy = wy[i] * zoom + panY;
+            onScreen[i] = sx + cell >= 0 && sy + cell >= 0 && sx <= w && sy <= h;
+        }
+    }
+
+    private boolean lineOnScreen(int i, int pi, int w, int h) {
+        float x0 = (Math.min(wx[i], wx[pi]) + HALF) * zoom + panX;
+        float x1 = (Math.max(wx[i], wx[pi]) + HALF) * zoom + panX;
+        float y0 = (Math.min(wy[i], wy[pi]) + HALF) * zoom + panY;
+        float y1 = (Math.max(wy[i], wy[pi]) + HALF) * zoom + panY;
+        return x1 >= 0 && y1 >= 0 && x0 <= w && y0 <= h;
+    }
+
+    private void drawItems(int n) {
+        Minecraft mc = Minecraft.getMinecraft();
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+        GL11.glEnable(GL12.GL_RESCALE_NORMAL);
+        RenderHelper.enableGUIStandardItemLighting();
+        GL11.glEnable(GL11.GL_DEPTH_TEST);
+        ITEM_RENDER.zLevel = 100f;
+        for (int i = 0; i < n; i++) {
+            if (!onScreen[i]) continue;
+            Achievement a = nodes.get(i);
+            ItemStack stack = a.theItemStack;
+            if (stack == null || stack.getItem() == null || index.isMasked(a)) continue;
+            try {
+                ITEM_RENDER
+                    .renderItemAndEffectIntoGUI(mc.fontRenderer, mc.getTextureManager(), stack, wx[i] + 3, wy[i] + 3);
+            } catch (Throwable ignored) {
+                // a broken item renderer must not take the whole screen down
+            }
+        }
+        ITEM_RENDER.zLevel = 0f;
+        RenderHelper.disableStandardItemLighting();
+        GL11.glDisable(GL11.GL_DEPTH_TEST);
+        GL11.glDisable(GL12.GL_RESCALE_NORMAL);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     /**
@@ -231,87 +342,19 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
         }
     }
 
-    /** Status, spoiler state and search/filter match: computed once per frame instead of per pass. */
-    private void updateCaches(int w, int h) {
-        Filter f = ui.filter();
-        String q = AchievementIndex.normalizeQuery(ui.query());
-        for (int i = 0; i < nodes.size(); i++) {
-            Achievement a = nodes.get(i);
-            Status st = AchievementIndex.status(a);
-            status[i] = st;
-            hidden[i] = index.isHidden(a);
-            match[i] = f.accepts(st) && index.matchesNormalized(a, q);
-        }
-    }
-
-    private void updateVisibility(int w, int h) {
-        float cell = NODE * zoom;
-        for (int i = 0; i < nodes.size(); i++) {
-            if (hidden[i]) {
-                onScreen[i] = false;
-                continue;
-            }
-            Achievement a = nodes.get(i);
-            float sx = a.displayColumn * CELL * zoom + panX, sy = a.displayRow * CELL * zoom + panY;
-            onScreen[i] = sx + cell >= 0 && sy + cell >= 0 && sx <= w && sy <= h;
-        }
-    }
-
-    private boolean lineOnScreen(Achievement a, Achievement p, int w, int h) {
-        float x0 = (Math.min(a.displayColumn, p.displayColumn) * CELL + HALF) * zoom + panX;
-        float x1 = (Math.max(a.displayColumn, p.displayColumn) * CELL + HALF) * zoom + panX;
-        float y0 = (Math.min(a.displayRow, p.displayRow) * CELL + HALF) * zoom + panY;
-        float y1 = (Math.max(a.displayRow, p.displayRow) * CELL + HALF) * zoom + panY;
-        return x1 >= 0 && y1 >= 0 && x0 <= w && y0 <= h;
-    }
-
-    private void drawItems(int n) {
-        Minecraft mc = Minecraft.getMinecraft();
-        GL11.glColor4f(1f, 1f, 1f, 1f);
-        GL11.glEnable(GL12.GL_RESCALE_NORMAL);
-        RenderHelper.enableGUIStandardItemLighting();
-        GL11.glEnable(GL11.GL_DEPTH_TEST);
-        ITEM_RENDER.zLevel = 100f;
-        for (int i = 0; i < n; i++) {
-            if (!onScreen[i]) continue;
-            Achievement a = nodes.get(i);
-            ItemStack stack = a.theItemStack;
-            if (stack == null || stack.getItem() == null || index.isMasked(a)) continue;
-            try {
-                ITEM_RENDER.renderItemAndEffectIntoGUI(
-                    mc.fontRenderer,
-                    mc.getTextureManager(),
-                    stack,
-                    a.displayColumn * CELL + 3,
-                    a.displayRow * CELL + 3);
-            } catch (Throwable ignored) {
-                // a broken item renderer must not take the whole screen down
-            }
-        }
-        ITEM_RENDER.zLevel = 0f;
-        RenderHelper.disableStandardItemLighting();
-        GL11.glDisable(GL11.GL_DEPTH_TEST);
-        GL11.glDisable(GL12.GL_RESCALE_NORMAL);
-        GL11.glColor4f(1f, 1f, 1f, 1f);
-    }
-
-    private static int lineColor(Status s) {
-        return s == Status.LOCKED ? LOCKED_LINE : s.color;
-    }
-
     private void applyPendingView(int w, int h) {
         if (needsFit) {
             needsFit = false;
             fit(w, h);
         }
         if (pendingCenter != null) {
-            Achievement a = pendingCenter;
+            Integer i = slot.get(pendingCenter);
             pendingCenter = null;
-            if (slot.get(a) != null) {
+            if (i != null) {
                 if (zoom < 0.75f) zoom = 1f;
                 targetZoom = zoom;
-                panX = w / 2f - (a.displayColumn * CELL + HALF) * zoom;
-                panY = h / 2f - (a.displayRow * CELL + HALF) * zoom;
+                panX = w / 2f - (wx[i] + HALF) * zoom;
+                panY = h / 2f - (wy[i] + HALF) * zoom;
             }
         }
     }
@@ -320,11 +363,10 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
         int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE;
         for (int i = 0; i < nodes.size(); i++) {
             if (hidden[i]) continue;
-            Achievement a = nodes.get(i);
-            minX = Math.min(minX, a.displayColumn * CELL);
-            minY = Math.min(minY, a.displayRow * CELL);
-            maxX = Math.max(maxX, a.displayColumn * CELL + NODE);
-            maxY = Math.max(maxY, a.displayRow * CELL + NODE);
+            minX = Math.min(minX, wx[i]);
+            minY = Math.min(minY, wy[i]);
+            maxX = Math.max(maxX, wx[i] + NODE);
+            maxY = Math.max(maxY, wy[i] + NODE);
         }
         if (minX == Integer.MAX_VALUE) {
             zoom = targetZoom = 1f;
@@ -338,25 +380,24 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
     }
 
     private Achievement nodeAt(int localX, int localY) {
-        float wx = (localX - panX) / zoom, wy = (localY - panY) / zoom;
+        float px = (localX - panX) / zoom, py = (localY - panY) / zoom;
         // iterate backwards: later nodes are drawn on top
         for (int i = nodes.size() - 1; i >= 0; i--) {
             if (!onScreen[i]) continue;
-            Achievement a = nodes.get(i);
-            int x = a.displayColumn * CELL, y = a.displayRow * CELL;
-            if (wx >= x && wx < x + NODE && wy >= y && wy < y + NODE) return a;
+            if (px >= wx[i] && px < wx[i] + NODE && py >= wy[i] && py < wy[i] + NODE) return nodes.get(i);
         }
         return null;
     }
 
-    private void buildTooltip(com.cleanroommc.modularui.screen.RichTooltip tooltip) {
+    private void buildTooltip(RichTooltip tooltip) {
         Achievement a = hovered;
         if (a == null) return;
         Status s = AchievementIndex.status(a);
-        tooltip.addLine(index.name(a));
+        tooltip.addLine((index.isPinned(a) ? "★ " : "") + index.name(a));
         tooltip.addLine(EnumChatFormatting.GRAY + I18n.format(s.langKey));
         String desc = index.description(a);
         if (!desc.isEmpty()) tooltip.addLine(EnumChatFormatting.DARK_GRAY + desc);
+        if (NeiCompat.isLoaded()) tooltip.addLine(EnumChatFormatting.DARK_GRAY + I18n.format("achievementsnh.nei.hint"));
     }
 
     // ---- input ----------------------------------------------------------------------------------------------------
@@ -393,6 +434,14 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
         zoomAnchorX = mouseLocalX >= 0 ? mouseLocalX : getArea().width / 2f;
         zoomAnchorY = mouseLocalY >= 0 ? mouseLocalY : getArea().height / 2f;
         return true;
+    }
+
+    /** R / U over a node: NEI recipe / usage of its item. */
+    @Override
+    public Result onKeyPressed(char typedChar, int keyCode) {
+        Achievement a = hovered;
+        if (a != null && NeiCompat.handleKey(keyCode, a.theItemStack)) return Result.SUCCESS;
+        return Result.IGNORE;
     }
 
     private static float clamp(float v, float min, float max) {

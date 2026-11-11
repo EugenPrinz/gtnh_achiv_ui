@@ -5,11 +5,13 @@ import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.network.NetHandlerPlayClient;
 import net.minecraft.network.play.client.C16PacketClientStatus;
 
+import com.cleanroommc.modularui.drawable.GuiDraw;
 import com.cleanroommc.modularui.screen.GuiScreenWrapper;
 import com.cleanroommc.modularui.screen.ModularScreen;
 import com.cleanroommc.modularui.screen.UISettings;
 
 import achievementsnh.AchievementsNH;
+import achievementsnh.Config;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 
@@ -43,6 +45,21 @@ public class AchievementsScreen extends ModularScreen {
         if (net != null) {
             net.addToSendQueue(new C16PacketClientStatus(C16PacketClientStatus.EnumState.REQUEST_STATS));
         }
+    }
+
+    /** Dark backdrop over the world so the surroundings do not distract; opacity from config. */
+    @Override
+    public void drawScreen() {
+        int alpha = Math.round(Config.backgroundOpacity * 2.55f);
+        if (alpha > 0) {
+            GuiDraw.drawRect(
+                0,
+                0,
+                getContext().getScreenArea().width,
+                getContext().getScreenArea().height,
+                (alpha << 24) | 0x101010);
+        }
+        super.drawScreen();
     }
 
     @Override
