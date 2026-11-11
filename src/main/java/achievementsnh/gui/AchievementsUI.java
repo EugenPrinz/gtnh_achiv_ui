@@ -1,7 +1,9 @@
 package achievementsnh.gui;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 import net.minecraft.client.Minecraft;
@@ -16,6 +18,7 @@ import com.cleanroommc.modularui.drawable.DynamicDrawable;
 import com.cleanroommc.modularui.drawable.ItemDrawable;
 import com.cleanroommc.modularui.drawable.Rectangle;
 import com.cleanroommc.modularui.screen.ModularPanel;
+import com.cleanroommc.modularui.screen.viewport.ModularGuiContext;
 import com.cleanroommc.modularui.utils.Alignment;
 import com.cleanroommc.modularui.widget.Widget;
 import com.cleanroommc.modularui.value.StringValue;
@@ -29,7 +32,11 @@ import achievementsnh.Config;
 import achievementsnh.data.AchievementIndex;
 import achievementsnh.data.AchievementIndex.PageInfo;
 import achievementsnh.data.Filter;
+import achievementsnh.data.Sort;
 import achievementsnh.data.Status;
+import org.lwjgl.input.Keyboard;
+
+import com.cleanroommc.modularui.api.widget.Interactable;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 
@@ -51,6 +58,9 @@ public class AchievementsUI {
     private static Filter lastFilter = Filter.ALL;
     private static Achievement lastSelected;
     private static boolean lastTreeMode = false;
+    private static Sort lastSort = Sort.DEFAULT;
+    private static boolean lastHideCompleted = false;
+    private static boolean lastPagesByProgress = false;
 
     private static final int TEXT = 0xFF404040;
     private static final int TEXT_DIM = 0xFF7A7A7A;
@@ -76,6 +86,11 @@ public class AchievementsUI {
     private Filter filter = lastFilter;
     private Achievement selected = lastSelected;
     private boolean treeMode = lastTreeMode;
+    private Sort sort = lastSort;
+    private boolean hideCompleted = lastHideCompleted;
+    private boolean pagesByProgress = lastPagesByProgress;
+    private List<PageInfo> shownPages = Collections.emptyList();
+    private TextFieldWidget searchField;
     private List<Achievement> visible = Collections.emptyList();
 
     private int lastUnlocked = -1;
@@ -84,6 +99,8 @@ public class AchievementsUI {
     private long fpsWindowStart = System.nanoTime();
     private int fpsFrames, fpsShown;
     private Achievement pendingScroll;
+    /** Page list rebuild requested from inside a page button click; done on the next tick, not mid-click. */
+    private boolean pendingPageRebuild;
 
     // ---- panel ----------------------------------------------------------------------------------------------------
 
@@ -92,9 +109,9 @@ public class AchievementsUI {
             .heightRel(Config.panelHeightPercent / 100f)
             .padding(6);
 
-        for (PageInfo p : index.pages()) pageList.child(pageButton(p));
-        pageList.width(Config.sidebarWidth)
-            .heightRel(1f);
+        rebuildPageList();
+        pageList.widthRel(1f)
+            .expanded();
         list.expanded()
             .heightRel(1f)
             .setEnabledIf(w -> !treeMode);
@@ -125,7 +142,7 @@ public class AchievementsUI {
                         .expanded()
                         .childPadding(4)
                         .collapseDisabledChild()
-                        .child(pageList)
+                        .child(sidebar())
                         .child(list)
                         .child(tree)
                         .child(details))
@@ -142,14 +159,26 @@ public class AchievementsUI {
         row.child(
             label(this::titleText, TEXT, 1f, Alignment.CenterLeft).expanded()
                 .heightRel(1f));
+        searchField = new TextFieldWidget().value(new StringValue.Dynamic(() -> query, this::setQuery))
+            .autoUpdateOnChange(true)
+            .acceptsExpressions(false)
+            .setMaxLength(64)
+            .hintText(I18n.format("achievementsnh.gui.search"))
+            .width(180)
+            .height(18);
+        row.child(searchField);
+        int sortW = 0;
+        for (Sort so : Sort.values()) sortW = Math.max(sortW, textWidth(I18n.format(so.langKey)));
         row.child(
-            new TextFieldWidget().value(new StringValue.Dynamic(() -> query, this::setQuery))
-                .autoUpdateOnChange(true)
-                .acceptsExpressions(false)
-                .setMaxLength(64)
-                .hintText(I18n.format("achievementsnh.gui.search"))
-                .width(180)
-                .height(18));
+            new ButtonWidget<>().width(sortW + 16)
+                .height(18)
+                .overlay(IKey.dynamic(() -> I18n.format(sort.langKey)))
+                .addTooltipLine(I18n.format("achievementsnh.sort.tooltip"))
+                .onMousePressed(b -> {
+                    if (b != 0) return false;
+                    setSort(sort.next());
+                    return true;
+                }));
         for (Filter f : Filter.values()) {
             int w = Minecraft.getMinecraft().fontRenderer.getStringWidth(I18n.format(f.langKey)) + 16;
             row.child(
@@ -185,6 +214,16 @@ public class AchievementsUI {
                 Config.showFps,
                 () -> label(this::fpsText, TEXT_DIM, 1f, Alignment.CenterRight).width(56)
                     .heightRel(1f))
+            .child(
+                new ButtonWidget<>().width(textWidth(I18n.format("achievementsnh.gui.next_available")) + 16)
+                    .height(18)
+                    .overlay(IKey.str(I18n.format("achievementsnh.gui.next_available")))
+                    .addTooltipLine(I18n.format("achievementsnh.gui.next_available.tooltip"))
+                    .onMousePressed(b -> {
+                        if (b != 0) return false;
+                        nextAvailable();
+                        return true;
+                    }))
             .child(
                 new ButtonWidget<>().width(oldW)
                     .height(18)
@@ -223,6 +262,77 @@ public class AchievementsUI {
     }
 
     // ---- page list ------------------------------------------------------------------------------------------------
+
+    private IWidget sidebar() {
+        return Flow.column()
+            .width(Config.sidebarWidth)
+            .heightRel(1f)
+            .childPadding(2)
+            .child(
+                Flow.row()
+                    .widthRel(1f)
+                    .height(14)
+                    .childPadding(2)
+                    .child(
+                        pageToggle(
+                            "achievementsnh.pages.hide_done",
+                            () -> hideCompleted,
+                            () -> {
+                                hideCompleted = !hideCompleted;
+                                lastHideCompleted = hideCompleted;
+                                rebuildPageList();
+                            }))
+                    .child(
+                        pageToggle(
+                            "achievementsnh.pages.by_progress",
+                            () -> pagesByProgress,
+                            () -> {
+                                pagesByProgress = !pagesByProgress;
+                                lastPagesByProgress = pagesByProgress;
+                                rebuildPageList();
+                            })))
+            .child(pageList);
+    }
+
+    private IWidget pageToggle(String langKey, BooleanSupplier on, Runnable toggle) {
+        return new ButtonWidget<>().expanded()
+            .heightRel(1f)
+            .overlay(
+                IKey.dynamic(() -> (on.getAsBoolean() ? EnumChatFormatting.YELLOW.toString() : "") + I18n.format(langKey)))
+            .addTooltipLine(I18n.format(langKey + ".tooltip"))
+            .onMousePressed(b -> {
+                if (b != 0) return false;
+                toggle.run();
+                return true;
+            });
+    }
+
+    /** Page order/visibility: empty pages always hidden; optionally hide 100% pages and sort by progress. */
+    private void rebuildPageList() {
+        List<PageInfo> pages = new ArrayList<>();
+        for (PageInfo p : index.pages()) {
+            if (p.achievements.isEmpty()) continue;
+            if (hideCompleted && p.index != page && index.countUnlocked(p.achievements) == p.achievements.size()) {
+                continue;
+            }
+            pages.add(p);
+        }
+        if (pagesByProgress) {
+            // closest to completion first
+            pages.sort((x, y) -> Double.compare(progress(y), progress(x)));
+        }
+        shownPages = pages;
+        pageList.removeAll();
+        for (PageInfo p : pages) pageList.child(pageButton(p));
+    }
+
+    private double progress(PageInfo p) {
+        return p.achievements.isEmpty() ? 0 : (double) index.countUnlocked(p.achievements) / p.achievements.size();
+    }
+
+    private static int textWidth(String s) {
+        return Minecraft.getMinecraft().fontRenderer.getStringWidth(s);
+    }
 
     private IWidget pageButton(PageInfo p) {
         return new ButtonWidget<>().widthRel(1f)
@@ -264,6 +374,7 @@ public class AchievementsUI {
     private void refreshList() {
         list.removeAll();
         visible = index.query(page, query, filter);
+        index.sort(visible, sort);
         boolean global = searching();
         int shown = Math.min(visible.size(), Config.maxRows);
         for (int i = 0; i < shown; i++) list.child(row(visible.get(i), global));
@@ -447,7 +558,80 @@ public class AchievementsUI {
         refreshList();
     }
 
+    private void setSort(Sort s) {
+        sort = s;
+        lastSort = s;
+        refreshList();
+    }
+
+    // ---- keyboard -------------------------------------------------------------------------------------------------
+
+    /**
+     * Screen hotkeys, only while no text field has focus. Ctrl+F search, Tab list/tree, Up/Down page,
+     * Enter show selected, N next available.
+     */
+    boolean onKey(char typedChar, int keyCode, ModularGuiContext context) {
+        if (keyCode == Keyboard.KEY_F && Interactable.hasControlDown()) {
+            if (searchField != null) context.focus(searchField);
+            return true;
+        }
+        switch (keyCode) {
+            case Keyboard.KEY_TAB -> setTreeMode(!treeMode);
+            case Keyboard.KEY_UP -> movePage(-1);
+            case Keyboard.KEY_DOWN -> movePage(1);
+            case Keyboard.KEY_RETURN, Keyboard.KEY_NUMPADENTER -> {
+                if (selected != null) navigateTo(selected);
+            }
+            case Keyboard.KEY_N -> nextAvailable();
+            default -> {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void movePage(int delta) {
+        if (shownPages.isEmpty()) return;
+        int at = -1;
+        for (int i = 0; i < shownPages.size(); i++) if (shownPages.get(i).index == page) at = i;
+        int next = at < 0 ? 0 : Math.floorMod(at + delta, shownPages.size());
+        selectPage(shownPages.get(next).index);
+    }
+
+    /**
+     * Next achievement that can be unlocked right now: after the selection on the current page (in on-screen order),
+     * then on the following pages.
+     */
+    private void nextAvailable() {
+        // list: rows as shown (search, filter, sort applied); tree: the page in registration order
+        List<Achievement> order = treeMode ? index.pages()
+            .get(page).achievements : visible;
+        int start = selected == null ? -1 : order.indexOf(selected);
+        for (int k = 1; k <= order.size(); k++) {
+            Achievement a = order.get(Math.floorMod(start + k, order.size()));
+            if (isAvailable(a)) {
+                navigateTo(a);
+                return;
+            }
+        }
+        List<PageInfo> pages = index.pages();
+        for (int k = 1; k < pages.size(); k++) {
+            PageInfo p = pages.get((page + k) % pages.size());
+            for (Achievement a : p.achievements) {
+                if (isAvailable(a)) {
+                    navigateTo(a);
+                    return;
+                }
+            }
+        }
+    }
+
+    private boolean isAvailable(Achievement a) {
+        return !index.isHidden(a) && AchievementIndex.status(a) == Status.AVAILABLE;
+    }
+
     private void selectPage(int i) {
+        if (hideCompleted && i != page) pendingPageRebuild = true;
         if (treeMode) {
             // tree keeps search/filter (they only dim nodes); clicking the current page re-fits the view
             if (i == page) tree.requestFit();
@@ -545,9 +729,14 @@ public class AchievementsUI {
             lastUnlocked = unlocked;
             // stats arrive asynchronously after REQUEST_STATS; membership only changes when filtering or hiding
             if (!first) {
-                if (filter != Filter.ALL || Config.hideSpoilers) refreshList();
+                if (filter != Filter.ALL || sort == Sort.STATUS || Config.hideSpoilers) refreshList();
                 rebuildDetails();
             }
+            if (hideCompleted || pagesByProgress) pendingPageRebuild = true;
+        }
+        if (pendingPageRebuild) {
+            pendingPageRebuild = false;
+            rebuildPageList();
         }
         if (pendingScroll != null && list.isValid()) {
             int i = visible.indexOf(pendingScroll);

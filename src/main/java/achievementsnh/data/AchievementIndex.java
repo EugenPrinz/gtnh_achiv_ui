@@ -178,6 +178,26 @@ public final class AchievementIndex {
         return Config.hideSpoilers && status(a) == Status.LOCKED && distance(a) > 3;
     }
 
+    /** Sorts in place according to {@code sort}; stable, so registration order breaks ties. */
+    public void sort(List<Achievement> list, Sort sort) {
+        switch (sort) {
+            case STATUS -> {
+                Map<Achievement, Integer> rank = new IdentityHashMap<>();
+                for (Achievement a : list) rank.put(a, Sort.statusRank(status(a)));
+                list.sort((x, y) -> Integer.compare(rank.get(x), rank.get(y)));
+            }
+            case NAME -> list.sort((x, y) -> sortName(x).compareTo(sortName(y)));
+            default -> {}
+        }
+    }
+
+    private String sortName(Achievement a) {
+        String text = searchText.get(a);
+        if (text == null) return "";
+        int nl = text.indexOf('\n');
+        return nl < 0 ? text : text.substring(0, nl);
+    }
+
     public static String normalizeQuery(String query) {
         return query == null ? ""
             : query.trim()

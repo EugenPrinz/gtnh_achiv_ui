@@ -46,6 +46,13 @@ public class AchievementsScreen extends ModularScreen {
     }
 
     @Override
+    public boolean onKeyPressed(char typedChar, int keyCode) {
+        // hotkeys only while no text field is focused, so typing in search is not intercepted
+        if (!getContext().isFocused() && ui.onKey(typedChar, keyCode, getContext())) return true;
+        return super.onKeyPressed(typedChar, keyCode);
+    }
+
+    @Override
     public void onUpdate() {
         super.onUpdate();
         ui.tick();
