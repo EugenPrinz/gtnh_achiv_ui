@@ -48,6 +48,7 @@ public class AchievementsUI {
     private static String lastQuery = "";
     private static Filter lastFilter = Filter.ALL;
     private static Achievement lastSelected;
+    private static boolean lastTreeMode = false;
 
     private static final int TEXT = 0xFF404040;
     private static final int TEXT_DIM = 0xFF7A7A7A;
@@ -65,12 +66,14 @@ public class AchievementsUI {
     private final AchList pageList = new AchList();
     private final AchList list = new AchList();
     private final AchList details = new AchList();
+    private final TreeWidget tree = new TreeWidget(index, this);
     private ModularPanel panel;
 
     private int page = index.clampPage(lastPage);
     private String query = lastQuery;
     private Filter filter = lastFilter;
     private Achievement selected = lastSelected;
+    private boolean treeMode = lastTreeMode;
     private List<Achievement> visible = Collections.emptyList();
 
     private int lastUnlocked = -1;
@@ -87,7 +90,12 @@ public class AchievementsUI {
         pageList.width(Config.sidebarWidth)
             .heightRel(1f);
         list.expanded()
-            .heightRel(1f);
+            .heightRel(1f)
+            .setEnabledIf(w -> !treeMode);
+        tree.expanded()
+            .heightRel(1f)
+            .background(ROW_BG)
+            .setEnabledIf(w -> treeMode);
         details.width(Config.detailsWidth)
             .heightRel(1f)
             .padding(4)
@@ -95,7 +103,10 @@ public class AchievementsUI {
 
         refreshList();
         rebuildDetails();
-        if (selected != null) pendingScroll = selected;
+        if (selected != null) {
+            pendingScroll = selected;
+            tree.centerOn(selected);
+        }
 
         panel.child(
             Flow.column()
@@ -107,8 +118,10 @@ public class AchievementsUI {
                         .widthRel(1f)
                         .expanded()
                         .childPadding(4)
+                        .collapseDisabledChild()
                         .child(pageList)
                         .child(list)
+                        .child(tree)
                         .child(details))
                 .child(footer()));
         return panel;
@@ -161,6 +174,8 @@ public class AchievementsUI {
             .height(18)
             .childPadding(4)
             .crossAxisAlignment(Alignment.CrossAxis.CENTER)
+            .child(viewButton(false, "achievementsnh.view.list"))
+            .child(viewButton(true, "achievementsnh.view.tree"))
             .child(
                 IKey.dynamic(this::totalText)
                     .asWidget()
@@ -192,13 +207,26 @@ public class AchievementsUI {
                     }));
     }
 
+    private IWidget viewButton(boolean tree, String langKey) {
+        int w = Minecraft.getMinecraft().fontRenderer.getStringWidth(I18n.format(langKey)) + 12;
+        return new ButtonWidget<>().width(w)
+            .height(18)
+            .overlay(
+                IKey.dynamic(() -> (treeMode == tree ? EnumChatFormatting.YELLOW.toString() : "") + I18n.format(langKey)))
+            .onMousePressed(b -> {
+                if (b != 0) return false;
+                setTreeMode(tree);
+                return true;
+            });
+    }
+
     // ---- page list ------------------------------------------------------------------------------------------------
 
     private IWidget pageButton(PageInfo p) {
         return new ButtonWidget<>().widthRel(1f)
             .height(ROW_H)
             .marginBottom(ROW_GAP)
-            .background(new DynamicDrawable(() -> p.index == page && !searching() ? ROW_SELECTED : ROW_BG))
+            .background(new DynamicDrawable(() -> p.index == page && (treeMode || !searching()) ? ROW_SELECTED : ROW_BG))
             .hoverBackground(ROW_HOVER)
             .child(
                 Flow.row()
@@ -410,6 +438,14 @@ public class AchievementsUI {
     }
 
     private void selectPage(int i) {
+        if (treeMode) {
+            // tree keeps search/filter (they only dim nodes); clicking the current page re-fits the view
+            if (i == page) tree.requestFit();
+            page = i;
+            lastPage = i;
+            refreshList();
+            return;
+        }
         boolean changed = i != page || searching();
         page = i;
         lastPage = i;
@@ -420,16 +456,26 @@ public class AchievementsUI {
         if (changed) refreshList();
     }
 
-    private void select(Achievement a) {
+    void select(Achievement a) {
         selected = a;
         lastSelected = a;
         rebuildDetails();
     }
 
-    /** Jump from the details panel: switch page and reset search/filter if the target is not on screen. */
+    /** Jump from the details panel to another achievement, switching page if needed. */
     private void navigateTo(Achievement a) {
+        PageInfo p = index.pageOf(a);
+        if (treeMode) {
+            if (p != null && p.index != page) {
+                page = p.index;
+                lastPage = p.index;
+                refreshList();
+            }
+            select(a);
+            tree.centerOn(a);
+            return;
+        }
         if (!visible.contains(a)) {
-            PageInfo p = index.pageOf(a);
             query = "";
             lastQuery = "";
             filter = Filter.ALL;
@@ -442,6 +488,35 @@ public class AchievementsUI {
         }
         select(a);
         pendingScroll = a;
+    }
+
+    private void setTreeMode(boolean on) {
+        if (treeMode == on) return;
+        treeMode = on;
+        lastTreeMode = on;
+        if (on) {
+            if (selected != null && index.pageOf(selected) != null && index.pageOf(selected).index == page) {
+                tree.centerOn(selected);
+            }
+        } else {
+            refreshList();
+            if (selected != null) pendingScroll = selected;
+        }
+    }
+
+    // ---- accessors for TreeWidget ---------------------------------------------------------------------------------
+
+    int currentPage() {
+        return page;
+    }
+
+    Achievement selected() {
+        return selected;
+    }
+
+    /** Current search text and status filter; the tree dims nodes that do not match. */
+    boolean matches(Achievement a) {
+        return filter.accepts(AchievementIndex.status(a)) && index.matchesQuery(a, query);
     }
 
     /** Called every client tick. */
@@ -470,10 +545,16 @@ public class AchievementsUI {
     // ---- texts ----------------------------------------------------------------------------------------------------
 
     private String titleText() {
-        if (searching()) return I18n.format("achievementsnh.gui.found", visible.size());
+        if (searching() && !treeMode) return I18n.format("achievementsnh.gui.found", visible.size());
         PageInfo p = index.pages()
             .get(page);
-        return p.name + "  " + EnumChatFormatting.GRAY + progressText(p.achievements);
+        String title = p.name + "  " + EnumChatFormatting.GRAY + progressText(p.achievements);
+        if (treeMode && (searching() || filter != Filter.ALL)) {
+            int n = 0;
+            for (Achievement a : p.achievements) if (!index.isHidden(a) && matches(a)) n++;
+            title += "  " + EnumChatFormatting.DARK_GRAY + I18n.format("achievementsnh.gui.found_page", n);
+        }
+        return title;
     }
 
     private String progressText(List<Achievement> list) {

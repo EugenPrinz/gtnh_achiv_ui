@@ -178,7 +178,17 @@ public final class AchievementIndex {
         return Config.hideSpoilers && status(a) == Status.LOCKED && distance(a) > 3;
     }
 
-    private boolean isMasked(Achievement a) {
+    /** Text query match (name + description, formatting stripped). Masked achievements never match. */
+    public boolean matchesQuery(Achievement a, String query) {
+        String q = query == null ? ""
+            : query.trim()
+                .toLowerCase(Locale.ROOT);
+        if (q.isEmpty()) return true;
+        String text = searchText.get(a);
+        return text != null && !isMasked(a) && text.contains(q);
+    }
+
+    public boolean isMasked(Achievement a) {
         return Config.hideSpoilers && status(a) == Status.LOCKED && distance(a) == 3;
     }
 

@@ -17,3 +17,6 @@ achievementsnh.filter.locked=Закрыты
 achievementsnh.status.unlocked=Получено
 achievementsnh.status.available=Доступно
 achievementsnh.status.locked=Закрыто
+achievementsnh.gui.found_page=совпадений: %d
+achievementsnh.view.list=Список
+achievementsnh.view.tree=Дерево

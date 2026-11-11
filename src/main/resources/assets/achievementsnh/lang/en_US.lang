@@ -17,3 +17,6 @@ achievementsnh.filter.locked=Locked
 achievementsnh.status.unlocked=Unlocked
 achievementsnh.status.available=Available
 achievementsnh.status.locked=Locked
+achievementsnh.gui.found_page=matches: %d
+achievementsnh.view.list=List
+achievementsnh.view.tree=Tree
