@@ -1,0 +1,46 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # Same JDK set as GTNH's reusable workflow: 8/17/21 for RFG toolchains, 25 for the Gradle daemon.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: |
+            8
+            17
+            21
+            25
+
+      - uses: gradle/actions/setup-gradle@v5
+
+      - name: Build
+        run: |
+          chmod +x gradlew
+          ./gradlew --stacktrace spotlessApply assemble
+
+      - name: Show formatting changes made by spotlessApply
+        if: always()
+        run: git diff --stat
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: achievementsnh-jar
+          path: build/libs/*.jar
+          if-no-files-found: error
