@@ -110,8 +110,9 @@ public class AchievementsUI {
             .padding(6);
 
         rebuildPageList();
+        // explicit height: an expanded ListWidget inside a Flow.column collapsed to one row
         pageList.widthRel(1f)
-            .expanded();
+            .heightRelOffset(1f, -16);
         list.expanded()
             .heightRel(1f)
             .setEnabledIf(w -> !treeMode);
