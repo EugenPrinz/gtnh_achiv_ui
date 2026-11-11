@@ -79,6 +79,10 @@ public class AchievementsUI {
     private List<Achievement> visible = Collections.emptyList();
 
     private int lastUnlocked = -1;
+
+    // frame counter of this screen, refreshed once per second
+    private long fpsWindowStart = System.nanoTime();
+    private int fpsFrames, fpsShown;
     private Achievement pendingScroll;
 
     // ---- panel ----------------------------------------------------------------------------------------------------
@@ -176,6 +180,10 @@ public class AchievementsUI {
             .child(viewButton(true, "achievementsnh.view.tree"))
             .child(
                 label(this::totalText, TEXT, 1f, Alignment.CenterLeft).expanded()
+                    .heightRel(1f))
+            .childIf(
+                Config.showFps,
+                () -> label(this::fpsText, TEXT_DIM, 1f, Alignment.CenterRight).width(56)
                     .heightRel(1f))
             .child(
                 new ButtonWidget<>().width(oldW)
@@ -572,6 +580,19 @@ public class AchievementsUI {
         int done = index.countUnlocked(list);
         int pct = total == 0 ? 0 : done * 100 / total;
         return done + "/" + total + " (" + pct + "%)";
+    }
+
+    /** Called once per drawn frame by the footer label. */
+    private String fpsText() {
+        fpsFrames++;
+        long now = System.nanoTime();
+        long elapsed = now - fpsWindowStart;
+        if (elapsed >= 1_000_000_000L) {
+            fpsShown = (int) Math.round(fpsFrames * 1e9 / elapsed);
+            fpsFrames = 0;
+            fpsWindowStart = now;
+        }
+        return "FPS: " + fpsShown;
     }
 
     private String totalText() {

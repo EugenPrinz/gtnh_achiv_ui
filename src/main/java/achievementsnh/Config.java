@@ -18,6 +18,7 @@ public final class Config {
     public static int detailsWidth = 140;
     /** Upper bound of rows rendered in the list (search across all pages can match thousands). */
     public static int maxRows = 600;
+    public static boolean showFps = true;
 
     private Config() {}
 
@@ -37,6 +38,7 @@ public final class Config {
         sidebarWidth = c.getInt("sidebarWidth", CAT, sidebarWidth, 60, 300, "Page list width, GUI pixels.");
         detailsWidth = c.getInt("detailsWidth", CAT, detailsWidth, 80, 400, "Details panel width, GUI pixels.");
         maxRows = c.getInt("maxRows", CAT, maxRows, 50, 5000, "Maximum rows shown in the achievement list.");
+        showFps = c.getBoolean("showFps", CAT, showFps, "Show the screen's frame rate in the footer.");
         if (c.hasChanged()) c.save();
     }
 }
