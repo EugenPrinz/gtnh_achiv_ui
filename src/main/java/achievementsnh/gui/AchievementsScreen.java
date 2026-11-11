@@ -69,8 +69,22 @@ public class AchievementsScreen extends ModularScreen {
         return super.onKeyPressed(typedChar, keyCode);
     }
 
+    /**
+     * Screen this one was opened from (the pause menu). When NEI's recipe screen returns here on Esc, ModularUI2
+     * records NEI as the new parent, so Done/Esc would go back to NEI and NEI back here: an endless loop. Pinning
+     * the original parent keeps Done/Esc leading out.
+     */
+    private GuiScreen originalParent;
+    private boolean parentCaptured;
+
     @Override
     public void onUpdate() {
+        if (!parentCaptured) {
+            parentCaptured = true;
+            originalParent = getContext().getParentScreen();
+        } else if (getContext().getParentScreen() != originalParent) {
+            getContext().setParentScreen(originalParent);
+        }
         super.onUpdate();
         ui.tick();
     }

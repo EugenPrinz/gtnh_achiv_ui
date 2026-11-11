@@ -54,6 +54,15 @@ public class TwoLineText extends Widget<TwoLineText> {
         tooltipAutoUpdate(true);
     }
 
+    /**
+     * Let hover pass to the row button underneath (like TextWidget does); otherwise the hover target flips between
+     * this widget and the button as the cursor moves, and the row background flickers.
+     */
+    @Override
+    public boolean canHoverThrough() {
+        return true;
+    }
+
     @Override
     public void draw(ModularGuiContext context, WidgetThemeEntry<?> widgetTheme) {
         int w = getArea().width, h = getArea().height;

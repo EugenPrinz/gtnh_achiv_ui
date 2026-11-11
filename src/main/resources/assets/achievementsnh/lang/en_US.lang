@@ -35,3 +35,5 @@ achievementsnh.pin.add=Pin
 achievementsnh.pin.remove=Unpin
 achievementsnh.pin.tooltip=Pinned achievements are collected on the "Pinned" page (key P)
 achievementsnh.nei.hint=R: recipe, U: usage (NEI)
+achievementsnh.view.auto=Auto
+achievementsnh.view.auto.tooltip=Lay out this page's tree from parent links (for pages where the mod placed achievements in a plain grid)

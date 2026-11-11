@@ -24,6 +24,9 @@ public final class Config {
     public static boolean showFps = true;
     /** Opacity of the dark backdrop behind the window, 0..100. */
     public static int backgroundOpacity = 85;
+    public static boolean showMinimap = true;
+    /** Page names (as shown) with automatic tree layout from parent links. */
+    public static final java.util.Set<String> autoLayoutPages = new java.util.LinkedHashSet<>();
 
     private Config() {}
 
@@ -57,6 +60,24 @@ public final class Config {
             0,
             100,
             "Opacity of the dark backdrop behind the window, %. 0 = only the usual vanilla dimming.");
+        showMinimap = c.getBoolean("showMinimap", CAT, showMinimap, "Show the tree overview when a page does not fit.");
+        autoLayoutPages.clear();
+        java.util.Collections.addAll(
+            autoLayoutPages,
+            c.getStringList(
+                "autoLayoutPages",
+                CAT,
+                new String[0],
+                "Pages (names as shown) where the tree is laid out from parent links. Toggle with the Auto button."));
         if (c.hasChanged()) c.save();
+    }
+
+    /** Persists the auto-layout toggle of a page. */
+    public static void setAutoLayout(String page, boolean on) {
+        if (on) autoLayoutPages.add(page);
+        else autoLayoutPages.remove(page);
+        config.get(CAT, "autoLayoutPages", new String[0])
+            .set(autoLayoutPages.toArray(new String[0]));
+        config.save();
     }
 }

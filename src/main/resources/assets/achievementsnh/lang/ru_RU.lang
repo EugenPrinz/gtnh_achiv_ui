@@ -35,3 +35,5 @@ achievementsnh.pin.add=Закрепить
 achievementsnh.pin.remove=Открепить
 achievementsnh.pin.tooltip=Закреплённые достижения собраны на странице «Закреплённые» (клавиша P)
 achievementsnh.nei.hint=R — рецепт, U — применения (NEI)
+achievementsnh.view.auto=Авто
+achievementsnh.view.auto.tooltip=Разложить дерево страницы по связям (для страниц, где мод расставил достижения простой сеткой)

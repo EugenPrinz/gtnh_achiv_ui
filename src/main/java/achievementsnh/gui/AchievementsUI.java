@@ -205,9 +205,27 @@ public class AchievementsUI {
             .widthRel(1f)
             .height(18)
             .childPadding(4)
+            .collapseDisabledChild()
             .crossAxisAlignment(Alignment.CrossAxis.CENTER)
             .child(viewButton(false, "achievementsnh.view.list"))
             .child(viewButton(true, "achievementsnh.view.tree"))
+            .child(
+                new ButtonWidget<>().width(textWidth(I18n.format("achievementsnh.view.auto")) + 12)
+                    .height(18)
+                    .overlay(
+                        IKey.dynamic(
+                            () -> (isAutoLayout(currentPageInfo()) ? EnumChatFormatting.YELLOW.toString() : "")
+                                + I18n.format("achievementsnh.view.auto")))
+                    .addTooltipLine(I18n.format("achievementsnh.view.auto.tooltip"))
+                    .setEnabledIf(w -> treeMode && !currentPageInfo().virtual)
+                    .onMousePressed(b -> {
+                        if (b != 0) return false;
+                        PageInfo p = currentPageInfo();
+                        Config.setAutoLayout(p.name, !isAutoLayout(p));
+                        tree.invalidate();
+                        tree.requestFit();
+                        return true;
+                    }))
             .child(
                 label(this::totalText, TEXT, 1f, Alignment.CenterLeft).expanded()
                     .heightRel(1f))
@@ -724,6 +742,15 @@ public class AchievementsUI {
             refreshList();
             if (selected != null) pendingScroll = selected;
         }
+    }
+
+    private PageInfo currentPageInfo() {
+        return index.pages()
+            .get(page);
+    }
+
+    boolean isAutoLayout(PageInfo p) {
+        return !p.virtual && Config.autoLayoutPages.contains(p.name);
     }
 
     // ---- accessors for TreeWidget ---------------------------------------------------------------------------------

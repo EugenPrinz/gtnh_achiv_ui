@@ -26,6 +26,7 @@ import com.cleanroommc.modularui.screen.viewport.ModularGuiContext;
 import com.cleanroommc.modularui.theme.WidgetThemeEntry;
 import com.cleanroommc.modularui.widget.Widget;
 
+import achievementsnh.Config;
 import achievementsnh.data.AchievementIndex;
 import achievementsnh.data.AchievementIndex.PageInfo;
 import achievementsnh.data.Filter;
@@ -143,7 +144,7 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
         hidden = new boolean[n];
         match = new boolean[n];
         onScreen = new boolean[n];
-        layout(info);
+        layout(info, ui.isAutoLayout(info));
         // invalidate() of the same page (pin added/removed) keeps the view
         if (page != fittedPage) {
             fittedPage = page;
@@ -152,9 +153,20 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
     }
 
     /** World position of every node; -1 in {@link #parent} means no link is drawn. */
-    private void layout(PageInfo info) {
+    private void layout(PageInfo info, boolean auto) {
         int n = nodes.size();
         drawLinks = !info.virtual;
+        if (!info.virtual) {
+            for (int i = 0; i < n; i++) {
+                Achievement a = nodes.get(i);
+                Integer p = a.parentAchievement == null ? null : slot.get(a.parentAchievement);
+                parent[i] = p == null || p == i ? -1 : p;
+            }
+            if (auto) {
+                autoLayout();
+                return;
+            }
+        }
         if (info.virtual) {
             int cols = Math.max(1, (int) Math.ceil(Math.sqrt(n * 1.6)));
             for (int i = 0; i < n; i++) {
@@ -168,9 +180,70 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
             Achievement a = nodes.get(i);
             wx[i] = a.displayColumn * CELL;
             wy[i] = a.displayRow * CELL;
-            Integer p = a.parentAchievement == null ? null : slot.get(a.parentAchievement);
-            parent[i] = p == null ? -1 : p;
         }
+    }
+
+    /**
+     * Layout from the parent links only, ignoring the mod's positions (GT5 places hundreds of achievements in a plain
+     * grid). Trees grow to the right like a file tree: column = depth, each leaf gets its own row, a parent sits on
+     * the row of its first child, so vanilla L-shaped links read naturally. Trees are stacked top to bottom; nodes
+     * without parent and children go into a compact grid to the right.
+     */
+    private void autoLayout() {
+        int n = nodes.size();
+        List<List<Integer>> kids = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) kids.add(new ArrayList<>());
+        for (int i = 0; i < n; i++) if (parent[i] >= 0) kids.get(parent[i])
+            .add(i);
+
+        boolean[] placed = new boolean[n];
+        int[] nextRow = { 0 };
+        int maxDepth = 0;
+        List<Integer> singles = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            if (parent[i] >= 0) continue;
+            if (kids.get(i)
+                .isEmpty()) {
+                singles.add(i);
+                continue;
+            }
+            maxDepth = Math.max(maxDepth, placeSubtree(i, 0, kids, placed, nextRow));
+            nextRow[0]++; // blank row between trees
+        }
+        // anything left (a parent cycle) goes with the singles
+        for (int i = 0; i < n; i++) if (!placed[i] && !singles.contains(i)) {
+            singles.add(i);
+            parent[i] = -1;
+        }
+
+        int gridX = singles.size() == nodes.size() ? 0 : (maxDepth + 2) * CELL;
+        int cols = Math.max(4, (int) Math.ceil(Math.sqrt(singles.size() * 1.6)));
+        for (int k = 0; k < singles.size(); k++) {
+            int i = singles.get(k);
+            wx[i] = gridX + (k % cols) * CELL;
+            wy[i] = (k / cols) * CELL;
+            placed[i] = true;
+        }
+    }
+
+    /** Places a subtree; returns its maximum depth. Iterative-safe against cycles via {@code placed}. */
+    private int placeSubtree(int i, int depth, List<List<Integer>> kids, boolean[] placed, int[] nextRow) {
+        placed[i] = true;
+        wx[i] = depth * CELL;
+        List<Integer> ch = kids.get(i);
+        int maxDepth = depth;
+        int firstRow = -1;
+        for (int c : ch) {
+            if (placed[c]) continue;
+            if (firstRow < 0) firstRow = nextRow[0];
+            maxDepth = Math.max(maxDepth, placeSubtree(c, depth + 1, kids, placed, nextRow));
+        }
+        if (firstRow < 0) {
+            wy[i] = nextRow[0]++ * CELL;
+        } else {
+            wy[i] = firstRow * CELL;
+        }
+        return maxDepth;
     }
 
     // ---- drawing --------------------------------------------------------------------------------------------------
@@ -188,7 +261,9 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
         mouseLocalX = context.getMouseX();
         mouseLocalY = context.getMouseY();
         boolean mouseInside = mouseLocalX >= 0 && mouseLocalY >= 0 && mouseLocalX < w && mouseLocalY < h;
-        hovered = mouseInside && !dragged ? nodeAt(mouseLocalX, mouseLocalY) : null;
+        hovered = mouseInside && !dragged && !minimapDrag && !inMinimap(mouseLocalX, mouseLocalY)
+            ? nodeAt(mouseLocalX, mouseLocalY)
+            : null;
 
         int n = nodes.size();
         Stencil.applyAtZero(getArea(), context);
@@ -207,6 +282,7 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
                 int px = wx[pi] + HALF, py = wy[pi] + HALF;
                 GuiDraw.drawRect(Math.min(cx, px) - 1, cy - 1, Math.abs(cx - px) + 2, 2, color);
                 GuiDraw.drawRect(px - 1, Math.min(cy, py) - 1, 2, Math.abs(cy - py) + 2, color);
+                drawArrow(i, cx, cy, px, py, color);
             }
         }
 
@@ -246,7 +322,98 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
         GL11.glPopMatrix();
 
         GL11.glPopMatrix();
+        drawMinimap(w, h);
         Stencil.remove();
+    }
+
+    // ---- minimap --------------------------------------------------------------------------------------------------
+
+    private static final int MM_MAX_W = 96, MM_MAX_H = 72, MM_PAD = 2, MM_MARGIN = 4;
+    private boolean minimapShown, minimapDrag;
+    private int mmX, mmY, mmW, mmH, mmMinX, mmMinY;
+    private float mmScale;
+
+    /** Overview in the bottom-right corner, only when the page does not fit; click or drag on it to move the view. */
+    private void drawMinimap(int w, int h) {
+        minimapShown = false;
+        if (!Config.showMinimap) return;
+        int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE;
+        for (int i = 0; i < nodes.size(); i++) {
+            if (hidden[i]) continue;
+            minX = Math.min(minX, wx[i]);
+            minY = Math.min(minY, wy[i]);
+            maxX = Math.max(maxX, wx[i] + NODE);
+            maxY = Math.max(maxY, wy[i] + NODE);
+        }
+        if (minX == Integer.MAX_VALUE) return;
+        float bw = maxX - minX, bh = maxY - minY;
+        boolean fits = minX * zoom + panX >= 0 && minY * zoom + panY >= 0
+            && maxX * zoom + panX <= w
+            && maxY * zoom + panY <= h;
+        if (fits || w < MM_MAX_W * 2 || h < MM_MAX_H * 2) return;
+
+        mmScale = Math.min((MM_MAX_W - 2 * MM_PAD) / bw, (MM_MAX_H - 2 * MM_PAD) / bh);
+        mmW = Math.round(bw * mmScale) + 2 * MM_PAD;
+        mmH = Math.round(bh * mmScale) + 2 * MM_PAD;
+        mmX = w - mmW - MM_MARGIN;
+        mmY = h - mmH - MM_MARGIN;
+        mmMinX = minX;
+        mmMinY = minY;
+        minimapShown = true;
+
+        GL11.glPushMatrix();
+        GL11.glTranslatef(0, 0, 400);
+        GuiDraw.drawRect(mmX - 1, mmY - 1, mmW + 2, mmH + 2, 0xFF555555);
+        GuiDraw.drawRect(mmX, mmY, mmW, mmH, 0xE0202020);
+        float dot = Math.max(1f, NODE * mmScale);
+        for (int i = 0; i < nodes.size(); i++) {
+            if (hidden[i]) continue;
+            int c = status[i] == Status.LOCKED ? 0xFF808080 : status[i].color;
+            if (!match[i]) c = 0xFF4A4A4A;
+            GuiDraw.drawRect(mmX + MM_PAD + (wx[i] - minX) * mmScale, mmY + MM_PAD + (wy[i] - minY) * mmScale, dot, dot, c);
+        }
+        // current view
+        float vx0 = (-panX / zoom - minX) * mmScale, vy0 = (-panY / zoom - minY) * mmScale;
+        float vw = w / zoom * mmScale, vh = h / zoom * mmScale;
+        float x0 = Math.max(0, vx0), y0 = Math.max(0, vy0);
+        float x1 = Math.min(mmW - 2 * MM_PAD, vx0 + vw), y1 = Math.min(mmH - 2 * MM_PAD, vy0 + vh);
+        if (x1 > x0 && y1 > y0) {
+            float bx = mmX + MM_PAD + x0, by = mmY + MM_PAD + y0, bwv = x1 - x0, bhv = y1 - y0;
+            GuiDraw.drawRect(bx, by, bwv, 1, 0xFFFFFFFF);
+            GuiDraw.drawRect(bx, by + bhv - 1, bwv, 1, 0xFFFFFFFF);
+            GuiDraw.drawRect(bx, by, 1, bhv, 0xFFFFFFFF);
+            GuiDraw.drawRect(bx + bwv - 1, by, 1, bhv, 0xFFFFFFFF);
+        }
+        GL11.glPopMatrix();
+    }
+
+    private boolean inMinimap(int lx, int ly) {
+        return minimapShown && lx >= mmX && ly >= mmY && lx < mmX + mmW && ly < mmY + mmH;
+    }
+
+    /** Centers the view on the world point under a minimap position. */
+    private void centerFromMinimap(int lx, int ly, int w, int h) {
+        float worldX = mmMinX + (lx - mmX - MM_PAD) / mmScale;
+        float worldY = mmMinY + (ly - mmY - MM_PAD) / mmScale;
+        panX = w / 2f - worldX * zoom;
+        panY = h / 2f - worldY * zoom;
+    }
+
+    /** Arrowhead where the link meets the child, pointing at the child (vanilla style). */
+    private void drawArrow(int i, int cx, int cy, int px, int py, int color) {
+        if (px < cx) { // link arrives horizontally from the left
+            int tx = wx[i] - 1;
+            for (int k = 0; k < 4; k++) GuiDraw.drawRect(tx - k, cy - k, 1, 2 * k + 1, color);
+        } else if (px > cx) { // from the right
+            int tx = wx[i] + NODE;
+            for (int k = 0; k < 4; k++) GuiDraw.drawRect(tx + k, cy - k, 1, 2 * k + 1, color);
+        } else if (py < cy) { // vertical, parent above
+            int ty = wy[i] - 1;
+            for (int k = 0; k < 4; k++) GuiDraw.drawRect(cx - k, ty - k, 2 * k + 1, 1, color);
+        } else if (py > cy) { // vertical, parent below
+            int ty = wy[i] + NODE;
+            for (int k = 0; k < 4; k++) GuiDraw.drawRect(cx - k, ty + k, 2 * k + 1, 1, color);
+        }
     }
 
     private static int lineColor(Status s) {
@@ -322,7 +489,9 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
         float dt = lastFrameNanos == 0 ? 0f : Math.min(0.1f, (now - lastFrameNanos) / 1e9f);
         lastFrameNanos = now;
 
-        if (pressed && Mouse.isButtonDown(0)) {
+        if (minimapDrag && Mouse.isButtonDown(0)) {
+            centerFromMinimap(context.getMouseX(), context.getMouseY(), getArea().width, getArea().height);
+        } else if (pressed && Mouse.isButtonDown(0)) {
             int dx = context.getAbsMouseX() - pressAbsX, dy = context.getAbsMouseY() - pressAbsY;
             if (!dragged && Math.abs(dx) + Math.abs(dy) >= DRAG_THRESHOLD) dragged = true;
             if (dragged) {
@@ -405,6 +574,11 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
     @Override
     public Result onMousePressed(int mouseButton) {
         if (mouseButton != 0) return Result.IGNORE;
+        if (inMinimap(mouseLocalX, mouseLocalY)) {
+            minimapDrag = true;
+            centerFromMinimap(mouseLocalX, mouseLocalY, getArea().width, getArea().height);
+            return Result.SUCCESS;
+        }
         pressed = true;
         dragged = false;
         pressAbsX = getContext().getAbsMouseX();
@@ -416,6 +590,10 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
 
     @Override
     public boolean onMouseRelease(int mouseButton) {
+        if (minimapDrag) {
+            minimapDrag = false;
+            return true;
+        }
         if (!pressed) return false;
         pressed = false;
         if (!dragged && hovered != null) {
