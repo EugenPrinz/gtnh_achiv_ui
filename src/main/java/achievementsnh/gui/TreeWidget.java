@@ -370,7 +370,12 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
             if (hidden[i]) continue;
             int c = status[i] == Status.LOCKED ? 0xFF808080 : status[i].color;
             if (!match[i]) c = 0xFF4A4A4A;
-            GuiDraw.drawRect(mmX + MM_PAD + (wx[i] - minX) * mmScale, mmY + MM_PAD + (wy[i] - minY) * mmScale, dot, dot, c);
+            GuiDraw.drawRect(
+                mmX + MM_PAD + (wx[i] - minX) * mmScale,
+                mmY + MM_PAD + (wy[i] - minY) * mmScale,
+                dot,
+                dot,
+                c);
         }
         // current view
         float vx0 = (-panX / zoom - minX) * mmScale, vy0 = (-panY / zoom - minY) * mmScale;
@@ -566,7 +571,8 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
         tooltip.addLine(EnumChatFormatting.GRAY + I18n.format(s.langKey));
         String desc = index.description(a);
         if (!desc.isEmpty()) tooltip.addLine(EnumChatFormatting.DARK_GRAY + desc);
-        if (NeiCompat.isLoaded()) tooltip.addLine(EnumChatFormatting.DARK_GRAY + I18n.format("achievementsnh.nei.hint"));
+        if (NeiCompat.isLoaded())
+            tooltip.addLine(EnumChatFormatting.DARK_GRAY + I18n.format("achievementsnh.nei.hint"));
     }
 
     // ---- input ----------------------------------------------------------------------------------------------------

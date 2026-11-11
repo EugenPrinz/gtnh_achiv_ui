@@ -11,17 +11,20 @@ import net.minecraft.client.resources.I18n;
 import net.minecraft.stats.Achievement;
 import net.minecraft.util.EnumChatFormatting;
 
+import org.lwjgl.input.Keyboard;
+
 import com.cleanroommc.modularui.api.drawable.IDrawable;
 import com.cleanroommc.modularui.api.drawable.IKey;
 import com.cleanroommc.modularui.api.widget.IWidget;
+import com.cleanroommc.modularui.api.widget.Interactable;
 import com.cleanroommc.modularui.drawable.DynamicDrawable;
 import com.cleanroommc.modularui.drawable.ItemDrawable;
 import com.cleanroommc.modularui.drawable.Rectangle;
 import com.cleanroommc.modularui.screen.ModularPanel;
 import com.cleanroommc.modularui.screen.viewport.ModularGuiContext;
 import com.cleanroommc.modularui.utils.Alignment;
-import com.cleanroommc.modularui.widget.Widget;
 import com.cleanroommc.modularui.value.StringValue;
+import com.cleanroommc.modularui.widget.Widget;
 import com.cleanroommc.modularui.widgets.ButtonWidget;
 import com.cleanroommc.modularui.widgets.ScrollingTextWidget;
 import com.cleanroommc.modularui.widgets.TextWidget;
@@ -34,9 +37,6 @@ import achievementsnh.data.AchievementIndex.PageInfo;
 import achievementsnh.data.Filter;
 import achievementsnh.data.Sort;
 import achievementsnh.data.Status;
-import org.lwjgl.input.Keyboard;
-
-import com.cleanroommc.modularui.api.widget.Interactable;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 
@@ -272,7 +272,8 @@ public class AchievementsUI {
         return new ButtonWidget<>().width(w)
             .height(18)
             .overlay(
-                IKey.dynamic(() -> (treeMode == tree ? EnumChatFormatting.YELLOW.toString() : "") + I18n.format(langKey)))
+                IKey.dynamic(
+                    () -> (treeMode == tree ? EnumChatFormatting.YELLOW.toString() : "") + I18n.format(langKey)))
             .onMousePressed(b -> {
                 if (b != 0) return false;
                 setTreeMode(tree);
@@ -292,24 +293,16 @@ public class AchievementsUI {
                     .widthRel(1f)
                     .height(14)
                     .childPadding(2)
-                    .child(
-                        pageToggle(
-                            "achievementsnh.pages.hide_done",
-                            () -> hideCompleted,
-                            () -> {
-                                hideCompleted = !hideCompleted;
-                                lastHideCompleted = hideCompleted;
-                                rebuildPageList();
-                            }))
-                    .child(
-                        pageToggle(
-                            "achievementsnh.pages.by_progress",
-                            () -> pagesByProgress,
-                            () -> {
-                                pagesByProgress = !pagesByProgress;
-                                lastPagesByProgress = pagesByProgress;
-                                rebuildPageList();
-                            })))
+                    .child(pageToggle("achievementsnh.pages.hide_done", () -> hideCompleted, () -> {
+                        hideCompleted = !hideCompleted;
+                        lastHideCompleted = hideCompleted;
+                        rebuildPageList();
+                    }))
+                    .child(pageToggle("achievementsnh.pages.by_progress", () -> pagesByProgress, () -> {
+                        pagesByProgress = !pagesByProgress;
+                        lastPagesByProgress = pagesByProgress;
+                        rebuildPageList();
+                    })))
             .child(pageList);
     }
 
@@ -317,7 +310,8 @@ public class AchievementsUI {
         return new ButtonWidget<>().expanded()
             .heightRel(1f)
             .overlay(
-                IKey.dynamic(() -> (on.getAsBoolean() ? EnumChatFormatting.YELLOW.toString() : "") + I18n.format(langKey)))
+                IKey.dynamic(
+                    () -> (on.getAsBoolean() ? EnumChatFormatting.YELLOW.toString() : "") + I18n.format(langKey)))
             .addTooltipLine(I18n.format(langKey + ".tooltip"))
             .onMousePressed(b -> {
                 if (b != 0) return false;
@@ -360,7 +354,8 @@ public class AchievementsUI {
         return new ButtonWidget<>().widthRel(1f)
             .height(ROW_H)
             .marginBottom(ROW_GAP)
-            .background(new DynamicDrawable(() -> p.index == page && (treeMode || !searching()) ? ROW_SELECTED : ROW_BG))
+            .background(
+                new DynamicDrawable(() -> p.index == page && (treeMode || !searching()) ? ROW_SELECTED : ROW_BG))
             .hoverBackground(ROW_HOVER)
             .child(
                 Flow.row()
@@ -536,8 +531,7 @@ public class AchievementsUI {
                         new ItemDrawable(a.theItemStack).asWidget()
                             .size(14))
                     .child(
-                        new ScrollingTextWidget(IKey.str(index.name(a)))
-                            .color(() -> AchievementIndex.status(a).color)
+                        new ScrollingTextWidget(IKey.str(index.name(a))).color(() -> AchievementIndex.status(a).color)
                             .expanded()
                             .height(9)))
             .onMousePressed(b -> {
