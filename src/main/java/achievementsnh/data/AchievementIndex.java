@@ -71,7 +71,8 @@ public final class AchievementIndex {
         }
         addPage("Minecraft", new ItemStack(Blocks.grass), vanilla);
 
-        int count = AchievementPage.getAchievementPages().size();
+        int count = AchievementPage.getAchievementPages()
+            .size();
         for (int i = 0; i < count; i++) {
             AchievementPage page = AchievementPage.getAchievementPage(i);
             if (page == null) continue;
@@ -81,7 +82,8 @@ public final class AchievementIndex {
 
         for (Achievement a : all) {
             if (a.parentAchievement != null) {
-                children.computeIfAbsent(a.parentAchievement, k -> new ArrayList<>()).add(a);
+                children.computeIfAbsent(a.parentAchievement, k -> new ArrayList<>())
+                    .add(a);
             }
         }
     }
@@ -93,7 +95,10 @@ public final class AchievementIndex {
             if (pageOf.containsKey(a)) continue; // achievement registered on several pages: first one wins
             pageOf.put(a, info);
             all.add(a);
-            String n = safe(() -> a.func_150951_e().getUnformattedText(), a.statId);
+            String n = safe(
+                () -> a.func_150951_e()
+                    .getUnformattedText(),
+                a.statId);
             String d = safe(a::getDescription, "");
             names.put(a, n);
             descriptions.put(a, d);
@@ -197,13 +202,16 @@ public final class AchievementIndex {
      * @param filter status filter
      */
     public List<Achievement> query(int page, String query, Filter filter) {
-        String q = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        String q = query == null ? ""
+            : query.trim()
+                .toLowerCase(Locale.ROOT);
         List<Achievement> source = q.isEmpty() ? pages.get(clampPage(page)).achievements : all;
         List<Achievement> out = new ArrayList<>();
         for (Achievement a : source) {
             if (isHidden(a)) continue;
             if (!filter.accepts(status(a))) continue;
-            if (!q.isEmpty() && (isMasked(a) || !searchText.get(a).contains(q))) continue;
+            if (!q.isEmpty() && (isMasked(a) || !searchText.get(a)
+                .contains(q))) continue;
             out.add(a);
         }
         return out;

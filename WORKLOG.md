@@ -25,3 +25,6 @@
 - Сверено с исходниками ModularUI2 на теге 2.3.94-1.7.10: `ClientGUI`, `GuiManager.openScreen`, `ClientScreenHandler.onGuiChange`, `ListWidget`, `TextFieldWidget`, `Flow`.
 - Репозиторий: github.com/EugenPrinz/gtnh_achiv_ui. Добавлен workflow сборки: JDK 8/17/21/25 (zulu), `spotlessApply assemble`, jar выкладывается в артефакт `achievementsnh-jar`.
 - Пуш из облака отклонён: Claude GitHub App не установлен на репозиторий. Первый пуш делается вручную.
+- Первая локальная сборка (Windows, `gradlew spotlessApply build`) прошла: BUILD SUCCESSFUL за 5m50s. Spotless поменял только форматирование.
+- Устаревший `TextWidget.alignment()` заменён на `textAlign()`: в MUI2 2.3.94 он помечен @Deprecated.
+- GitHub Actions: запуски висят в Queued, задачи не создаются (вероятно, ограничение на уровне аккаунта). Сборка пока локальная.

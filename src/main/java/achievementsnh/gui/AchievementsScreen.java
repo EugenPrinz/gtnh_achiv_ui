@@ -31,13 +31,15 @@ public class AchievementsScreen extends ModularScreen {
     public static GuiScreen createWrapper() {
         requestStats();
         AchievementsScreen screen = new AchievementsScreen(new AchievementsUI());
-        screen.getContext().setSettings(new UISettings());
+        screen.getContext()
+            .setSettings(new UISettings());
         return new GuiScreenWrapper(screen);
     }
 
     /** Same request vanilla GuiAchievements sends on open; the reply updates the client StatFileWriter. */
     private static void requestStats() {
-        NetHandlerPlayClient net = Minecraft.getMinecraft().getNetHandler();
+        NetHandlerPlayClient net = Minecraft.getMinecraft()
+            .getNetHandler();
         if (net != null) {
             net.addToSendQueue(new C16PacketClientStatus(C16PacketClientStatus.EnumState.REQUEST_STATS));
         }

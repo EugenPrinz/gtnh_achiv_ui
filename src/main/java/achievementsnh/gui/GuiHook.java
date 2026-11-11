@@ -34,7 +34,8 @@ public class GuiHook {
             bypassOnce = false;
             return;
         }
-        String cls = event.gui.getClass().getName();
+        String cls = event.gui.getClass()
+            .getName();
         boolean vanilla = event.gui instanceof GuiAchievements && !BA_OLD_SCREEN.equals(cls);
         if (!vanilla && !BA_SCREEN.equals(cls)) return;
         if (Minecraft.getMinecraft().thePlayer == null) return;

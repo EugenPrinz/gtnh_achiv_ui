@@ -58,10 +58,8 @@ public class AchievementsUI {
     private static final IDrawable ROW_BG = new Rectangle().color(0x14000000);
     private static final IDrawable ROW_HOVER = new Rectangle().color(0x2A000000);
     private static final IDrawable ROW_SELECTED = new Rectangle().color(0x502F6FD0);
-    private static final IDrawable[] STRIPE = {
-        new Rectangle().color(Status.UNLOCKED.color),
-        new Rectangle().color(Status.AVAILABLE.color),
-        new Rectangle().color(0xFFB0B0B0) };
+    private static final IDrawable[] STRIPE = { new Rectangle().color(Status.UNLOCKED.color),
+        new Rectangle().color(Status.AVAILABLE.color), new Rectangle().color(0xFFB0B0B0) };
 
     private final AchievementIndex index = new AchievementIndex();
     private final AchList pageList = new AchList();
@@ -126,7 +124,7 @@ public class AchievementsUI {
             IKey.dynamic(this::titleText)
                 .asWidget()
                 .color(TEXT)
-                .alignment(Alignment.CenterLeft)
+                .textAlign(Alignment.CenterLeft)
                 .expanded()
                 .heightRel(1f));
         row.child(
@@ -167,7 +165,7 @@ public class AchievementsUI {
                 IKey.dynamic(this::totalText)
                     .asWidget()
                     .color(TEXT)
-                    .alignment(Alignment.CenterLeft)
+                    .textAlign(Alignment.CenterLeft)
                     .expanded()
                     .heightRel(1f))
             .child(
@@ -225,7 +223,7 @@ public class AchievementsUI {
                                     .asWidget()
                                     .color(TEXT_DIM)
                                     .scale(0.75f)
-                                    .alignment(Alignment.CenterLeft)
+                                    .textAlign(Alignment.CenterLeft)
                                     .widthRel(1f)
                                     .height(7))))
             .onMousePressed(b -> {
@@ -259,9 +257,11 @@ public class AchievementsUI {
             .childPadding(5)
             .crossAxisAlignment(Alignment.CrossAxis.CENTER)
             .child(
-                new DynamicDrawable(() -> STRIPE[AchievementIndex.status(a).ordinal()]).asWidget()
-                    .width(2)
-                    .heightRel(1f))
+                new DynamicDrawable(
+                    () -> STRIPE[AchievementIndex.status(a)
+                        .ordinal()]).asWidget()
+                            .width(2)
+                            .heightRel(1f))
             .child(
                 new ItemDrawable(a.theItemStack).asWidget()
                     .size(16))
@@ -287,7 +287,7 @@ public class AchievementsUI {
                     .asWidget()
                     .color(TEXT_DIM)
                     .scale(0.75f)
-                    .alignment(Alignment.CenterRight)
+                    .textAlign(Alignment.CenterRight)
                     .width(70)
                     .height(7));
         }
@@ -331,8 +331,7 @@ public class AchievementsUI {
         if (!desc.isEmpty()) details.child(text(IKey.str(desc), TEXT, 1f).marginTop(3));
 
         if (a.parentAchievement != null && !index.isHidden(a.parentAchievement)) {
-            details.child(
-                text(IKey.str(I18n.format("achievementsnh.gui.requires")), TEXT_DIM, 0.75f).marginTop(5));
+            details.child(text(IKey.str(I18n.format("achievementsnh.gui.requires")), TEXT_DIM, 0.75f).marginTop(5));
             details.child(link(a.parentAchievement));
         }
 
@@ -340,8 +339,7 @@ public class AchievementsUI {
         for (Achievement c : index.childrenOf(a)) {
             if (index.isHidden(c)) continue;
             if (shown == 0) {
-                details.child(
-                    text(IKey.str(I18n.format("achievementsnh.gui.unlocks")), TEXT_DIM, 0.75f).marginTop(5));
+                details.child(text(IKey.str(I18n.format("achievementsnh.gui.unlocks")), TEXT_DIM, 0.75f).marginTop(5));
             }
             if (shown < MAX_LINKS) {
                 details.child(link(c));
@@ -384,7 +382,7 @@ public class AchievementsUI {
         return key.asWidget()
             .color(color)
             .scale(scale)
-            .alignment(Alignment.TopLeft)
+            .textAlign(Alignment.TopLeft)
             .widthRel(1f)
             .marginBottom(2);
     }

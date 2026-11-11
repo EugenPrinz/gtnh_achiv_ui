@@ -23,13 +23,15 @@ public final class Config {
 
     public static void load(File file) {
         Configuration c = new Configuration(file);
-        enabled = c.getBoolean("enabled", CAT, enabled, "Replace the achievements screen with the Achievements NH one.");
+        enabled = c
+            .getBoolean("enabled", CAT, enabled, "Replace the achievements screen with the Achievements NH one.");
         hideSpoilers = c.getBoolean(
             "hideSpoilers",
             CAT,
             hideSpoilers,
             "Vanilla spoiler rules: hide locked achievements far from anything unlocked.");
-        panelWidthPercent = c.getInt("panelWidthPercent", CAT, panelWidthPercent, 50, 100, "Window width, % of screen.");
+        panelWidthPercent = c
+            .getInt("panelWidthPercent", CAT, panelWidthPercent, 50, 100, "Window width, % of screen.");
         panelHeightPercent = c
             .getInt("panelHeightPercent", CAT, panelHeightPercent, 50, 100, "Window height, % of screen.");
         sidebarWidth = c.getInt("sidebarWidth", CAT, sidebarWidth, 60, 300, "Page list width, GUI pixels.");
