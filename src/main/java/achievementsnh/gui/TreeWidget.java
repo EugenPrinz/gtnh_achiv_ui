@@ -13,6 +13,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.stats.Achievement;
 import net.minecraft.util.EnumChatFormatting;
 
+import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 
@@ -57,13 +58,16 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
     private final AchievementIndex index;
     private final AchievementsUI ui;
 
-    private float zoom = 1f;
+    private float zoom = 1f, targetZoom = 1f;
+    private float zoomAnchorX, zoomAnchorY;
     private float panX, panY;
+    private float panAtPressX, panAtPressY;
+    private long lastFrameNanos;
     private boolean needsFit = true;
     private Achievement pendingCenter;
 
     // input state
-    private int pressAbsX, pressAbsY, lastAbsX, lastAbsY;
+    private int pressAbsX, pressAbsY;
     private boolean pressed, dragged;
     private int mouseLocalX = -1, mouseLocalY = -1;
     private Achievement hovered;
@@ -130,6 +134,7 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
         if (w <= 0 || h <= 0) return;
         updateCaches(w, h);
         applyPendingView(w, h);
+        updateDragAndZoom(context);
         updateVisibility(w, h);
 
         mouseLocalX = context.getMouseX();
@@ -194,6 +199,36 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
 
         GL11.glPopMatrix();
         Stencil.remove();
+    }
+
+    /**
+     * GUI input in 1.7.10 is processed in runTick (20 Hz), so moving the view from onMouseDrag/onMouseScroll looks
+     * like 20 fps. Here the view follows the cursor every frame; the input callbacks only start/stop the drag and set
+     * the zoom target.
+     */
+    private void updateDragAndZoom(ModularGuiContext context) {
+        long now = System.nanoTime();
+        float dt = lastFrameNanos == 0 ? 0f : Math.min(0.1f, (now - lastFrameNanos) / 1e9f);
+        lastFrameNanos = now;
+
+        if (pressed && Mouse.isButtonDown(0)) {
+            int dx = context.getAbsMouseX() - pressAbsX, dy = context.getAbsMouseY() - pressAbsY;
+            if (!dragged && Math.abs(dx) + Math.abs(dy) >= DRAG_THRESHOLD) dragged = true;
+            if (dragged) {
+                panX = panAtPressX + dx;
+                panY = panAtPressY + dy;
+            }
+        }
+
+        if (zoom != targetZoom) {
+            // exponential approach, ~120 ms to settle
+            float t = Math.min(1f, dt * 18f);
+            float next = zoom + (targetZoom - zoom) * t;
+            if (Math.abs(next - targetZoom) < 0.002f) next = targetZoom;
+            panX = zoomAnchorX - (zoomAnchorX - panX) * next / zoom;
+            panY = zoomAnchorY - (zoomAnchorY - panY) * next / zoom;
+            zoom = next;
+        }
     }
 
     /** Status, spoiler state and search/filter match: computed once per frame instead of per pass. */
@@ -274,6 +309,7 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
             pendingCenter = null;
             if (slot.get(a) != null) {
                 if (zoom < 0.75f) zoom = 1f;
+                targetZoom = zoom;
                 panX = w / 2f - (a.displayColumn * CELL + HALF) * zoom;
                 panY = h / 2f - (a.displayRow * CELL + HALF) * zoom;
             }
@@ -291,12 +327,12 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
             maxY = Math.max(maxY, a.displayRow * CELL + NODE);
         }
         if (minX == Integer.MAX_VALUE) {
-            zoom = 1f;
+            zoom = targetZoom = 1f;
             panX = panY = 0;
             return;
         }
         float bw = maxX - minX, bh = maxY - minY;
-        zoom = clamp(Math.min((w - 16) / bw, (h - 16) / bh), MIN_ZOOM, 1f);
+        zoom = targetZoom = clamp(Math.min((w - 16) / bw, (h - 16) / bh), MIN_ZOOM, 1f);
         panX = w / 2f - (minX + bw / 2f) * zoom;
         panY = h / 2f - (minY + bh / 2f) * zoom;
     }
@@ -330,22 +366,11 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
         if (mouseButton != 0) return Result.IGNORE;
         pressed = true;
         dragged = false;
-        pressAbsX = lastAbsX = getContext().getAbsMouseX();
-        pressAbsY = lastAbsY = getContext().getAbsMouseY();
+        pressAbsX = getContext().getAbsMouseX();
+        pressAbsY = getContext().getAbsMouseY();
+        panAtPressX = panX;
+        panAtPressY = panY;
         return Result.SUCCESS;
-    }
-
-    @Override
-    public void onMouseDrag(int mouseButton, long timeSinceClick) {
-        if (!pressed) return;
-        int ax = getContext().getAbsMouseX(), ay = getContext().getAbsMouseY();
-        if (!dragged && Math.abs(ax - pressAbsX) + Math.abs(ay - pressAbsY) >= DRAG_THRESHOLD) dragged = true;
-        if (dragged) {
-            panX += ax - lastAbsX;
-            panY += ay - lastAbsY;
-        }
-        lastAbsX = ax;
-        lastAbsY = ay;
     }
 
     @Override
@@ -363,14 +388,10 @@ public class TreeWidget extends Widget<TreeWidget> implements Interactable {
     @Override
     public boolean onMouseScroll(UpOrDown scrollDirection, int amount) {
         float factor = scrollDirection.isUp() ? 1.25f : 0.8f;
-        float newZoom = clamp(zoom * factor, MIN_ZOOM, MAX_ZOOM);
-        if (newZoom == zoom) return true;
-        // keep the world point under the cursor fixed
-        float mx = mouseLocalX >= 0 ? mouseLocalX : getArea().width / 2f;
-        float my = mouseLocalY >= 0 ? mouseLocalY : getArea().height / 2f;
-        panX = mx - (mx - panX) * newZoom / zoom;
-        panY = my - (my - panY) * newZoom / zoom;
-        zoom = newZoom;
+        targetZoom = clamp(targetZoom * factor, MIN_ZOOM, MAX_ZOOM);
+        // zoom around the cursor (position from the last drawn frame)
+        zoomAnchorX = mouseLocalX >= 0 ? mouseLocalX : getArea().width / 2f;
+        zoomAnchorY = mouseLocalY >= 0 ? mouseLocalY : getArea().height / 2f;
         return true;
     }
 
