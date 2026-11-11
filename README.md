@@ -6,9 +6,13 @@ The vanilla achievements screen (and Better Achievements on top of it) is a smal
 
 Client-side only. Built on ModularUI2.
 
-| Before | List view | Tree view |
-| --- | --- | --- |
-| ![Before](docs/before.png) | ![List](docs/list.png) | ![Tree](docs/tree.png) |
+| Before (vanilla / Better Achievements) | List view |
+| --- | --- |
+| ![Before](docs/before.png) | ![List](docs/list.png) |
+| **Tree view, GregTech page as registered** | **Same page with Auto layout** |
+| ![Tree](docs/tree.png) | ![Auto layout](docs/auto.png) |
+| **Pinned page** | |
+| ![Pinned](docs/pinned.png) | |
 
 ## Features
 
