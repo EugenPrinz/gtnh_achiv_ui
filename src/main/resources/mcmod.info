@@ -1,0 +1,21 @@
+{
+	"modListVersion": 2,
+	"modList": [{
+		"modid": "${modId}",
+		"name": "${modName}",
+		"description": "Full-screen achievements screen for GT New Horizons: page list with progress, search across all pages, status filters and an achievement details panel.",
+		"version": "${modVersion}",
+		"mcversion": "${minecraftVersion}",
+		"url": "",
+		"updateUrl": "",
+		"authorList": ["Bohdan"],
+		"credits": "Built on ModularUI2. Inspired by Better Achievements.",
+		"logoFile": "",
+		"screenshots": [],
+		"parent": "",
+		"requiredMods": ["modularui2"],
+		"dependencies": ["modularui2"],
+		"dependants": [],
+		"useDependencyInformation": true
+	}]
+}

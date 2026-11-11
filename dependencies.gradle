@@ -1,0 +1,5 @@
+// Versions match GT New Horizons 2.9.0.
+dependencies {
+    implementation("com.github.GTNewHorizons:ModularUI2:2.3.94-1.7.10:dev")
+    implementation("com.github.GTNewHorizons:GTNHLib:0.11.54:dev")
+}
