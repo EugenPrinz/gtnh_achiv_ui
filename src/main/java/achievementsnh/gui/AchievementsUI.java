@@ -351,18 +351,9 @@ public class AchievementsUI {
                         new ItemDrawable(p.icon).asWidget()
                             .size(16))
                     .child(
-                        Flow.column()
+                        new TwoLineText(() -> p.name, () -> progressText(p.achievements), () -> TEXT, TEXT_DIM)
                             .expanded()
-                            .heightRel(1f)
-                            .paddingTop(1)
-                            .child(
-                                new ScrollingTextWidget(IKey.str(p.name)).color(TEXT)
-                                    .widthRel(1f)
-                                    .height(9))
-                            .child(
-                                label(() -> progressText(p.achievements), TEXT_DIM, 0.75f, Alignment.CenterLeft)
-                                    .widthRel(1f)
-                                    .height(7))))
+                            .heightRel(1f)))
             .onMousePressed(b -> {
                 if (b != 0) return false;
                 selectPage(p.index);
@@ -404,20 +395,12 @@ public class AchievementsUI {
                 new ItemDrawable(a.theItemStack).asWidget()
                     .size(16))
             .child(
-                Flow.column()
-                    .expanded()
-                    .heightRel(1f)
-                    .paddingTop(1)
-                    .child(
-                        new ScrollingTextWidget(IKey.str(index.name(a)))
-                            .color(() -> AchievementIndex.status(a).color)
-                            .widthRel(1f)
-                            .height(9))
-                    .child(
-                        new ScrollingTextWidget(IKey.str(index.description(a))).color(TEXT_DIM)
-                            .scale(0.75f)
-                            .widthRel(1f)
-                            .height(7)));
+                new TwoLineText(
+                    () -> index.name(a),
+                    () -> index.description(a),
+                    () -> AchievementIndex.status(a).color,
+                    TEXT_DIM).expanded()
+                        .heightRel(1f));
         if (showPage) {
             PageInfo p = index.pageOf(a);
             content.child(
